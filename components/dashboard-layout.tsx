@@ -3,7 +3,7 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { UserButton, useUser } from '@clerk/nextjs';
+import { UserButton, useUser, useClerk } from '@clerk/nextjs';
 import {
   Home,
   Briefcase,
@@ -72,6 +72,7 @@ const menuItems = [
 
 export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { user, isLoaded } = useUser();
+  const { signOut } = useClerk();
   const pathname = usePathname();
 
   if (!isLoaded) {
@@ -164,8 +165,11 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
                   <Link href="/dashboard/settings">Account Settings</Link>
                 </DropdownMenuItem>
                 <DropdownMenuSeparator className="bg-gray-800" />
-                <DropdownMenuItem asChild className="text-red-400 focus:text-red-300 focus:bg-gray-800 cursor-pointer">
-                  <Link href="/sign-out">Sign Out</Link>
+                <DropdownMenuItem 
+                  onClick={() => signOut({ redirectUrl: '/' })}
+                  className="text-red-400 focus:text-red-300 focus:bg-gray-800 cursor-pointer"
+                >
+                  Sign Out
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
