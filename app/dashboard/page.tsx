@@ -40,33 +40,33 @@ export default async function DashboardPage() {
 
         {/* Statistics Cards */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
-          <div className="bg-blue-900/40 backdrop-blur-sm rounded-xl border border-blue-700/50 p-6 flex items-center shadow-lg">
-            <div className="p-4 bg-blue-500/20 rounded-full mr-4">
-              <svg className="w-8 h-8 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
+          <div className="bg-blue-900/40 backdrop-blur-sm rounded-xl border border-blue-700/50 p-4 sm:p-6 flex items-center shadow-lg overflow-hidden">
+            <div className="p-3 sm:p-4 bg-blue-500/20 rounded-full mr-3 sm:mr-4 shrink-0">
+              <svg className="w-6 h-6 sm:w-8 h-8 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
             </div>
-            <div>
-              <p className="text-sm text-blue-300 font-medium">Total Jobs</p>
-              <h3 className="text-3xl font-bold text-white">{totalJobs}</h3>
-            </div>
-          </div>
-
-          <div className="bg-emerald-900/40 backdrop-blur-sm rounded-xl border border-emerald-700/50 p-6 flex items-center shadow-lg">
-            <div className="p-4 bg-emerald-500/20 rounded-full mr-4">
-              <svg className="w-8 h-8 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-            </div>
-            <div>
-              <p className="text-sm text-emerald-300 font-medium">Active Jobs</p>
-              <h3 className="text-3xl font-bold text-white">{activeJobs}</h3>
+            <div className="min-w-0">
+              <p className="text-xs sm:text-sm text-blue-300 font-medium truncate sm:whitespace-normal">Total Jobs</p>
+              <h3 className="text-2xl sm:text-3xl font-bold text-white leading-none">{totalJobs}</h3>
             </div>
           </div>
 
-          <div className="bg-red-900/40 backdrop-blur-sm rounded-xl border border-red-700/50 p-6 flex items-center shadow-lg">
-            <div className="p-4 bg-red-500/20 rounded-full mr-4">
-              <svg className="w-8 h-8 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+          <div className="bg-emerald-900/40 backdrop-blur-sm rounded-xl border border-emerald-700/50 p-4 sm:p-6 flex items-center shadow-lg overflow-hidden">
+            <div className="p-3 sm:p-4 bg-emerald-500/20 rounded-full mr-3 sm:mr-4 shrink-0">
+              <svg className="w-6 h-6 sm:w-8 h-8 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
             </div>
-            <div>
-              <p className="text-sm text-red-300 font-medium">Expired/Closed Jobs</p>
-              <h3 className="text-3xl font-bold text-white">{expiredJobs}</h3>
+            <div className="min-w-0">
+              <p className="text-xs sm:text-sm text-emerald-300 font-medium truncate sm:whitespace-normal">Active Jobs</p>
+              <h3 className="text-2xl sm:text-3xl font-bold text-white leading-none">{activeJobs}</h3>
+            </div>
+          </div>
+
+          <div className="bg-red-900/40 backdrop-blur-sm rounded-xl border border-red-700/50 p-4 sm:p-6 flex items-center shadow-lg overflow-hidden">
+            <div className="p-3 sm:p-4 bg-red-500/20 rounded-full mr-3 sm:mr-4 shrink-0">
+              <svg className="w-6 h-6 sm:w-8 h-8 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+            </div>
+            <div className="min-w-0">
+              <p className="text-xs sm:text-sm text-red-300 font-medium truncate sm:whitespace-normal">Expired/Closed Jobs</p>
+              <h3 className="text-2xl sm:text-3xl font-bold text-white leading-none">{expiredJobs}</h3>
             </div>
           </div>
         </div>

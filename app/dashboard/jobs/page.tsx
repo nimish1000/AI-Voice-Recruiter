@@ -359,12 +359,12 @@ export default function JobsPage() {
           /* Grid View */
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
             {filteredJobs.map((job) => (
-              <Card key={job.id} className="border-gray-700 bg-gray-800/50 hover:bg-gray-800/70 transition-all">
-                <CardContent className="p-6 space-y-4">
+              <Card key={job.id} className="border-gray-700 bg-gray-800/50 hover:bg-gray-800/70 transition-all overflow-hidden">
+                <CardContent className="p-4 sm:p-6 space-y-4">
                   {/* Header */}
                   <div className="flex items-start justify-between">
                     <div className="flex-1">
-                      <h3 className="text-lg font-semibold text-white mb-2">
+                      <h3 className="text-lg font-semibold text-white mb-2 line-clamp-2">
                         {job.title}
                       </h3>
                       <div className="flex flex-wrap gap-2">
@@ -423,7 +423,7 @@ export default function JobsPage() {
                   {/* Actions */}
                   <div className="space-y-2 pt-3 border-t border-gray-700">
                     {/* Status Update */}
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap gap-2">
                       {job.status === 'draft' && (
                         <Button
                           size="sm"

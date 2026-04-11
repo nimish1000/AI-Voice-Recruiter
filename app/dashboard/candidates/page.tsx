@@ -277,12 +277,12 @@ export default function CandidatesPage() {
             {paginatedCandidates.map((candidate, index) => {
               console.log(`Rendering candidate ${index}:`, { id: candidate.id, name: candidate.name });
               return (
-              <Card key={candidate.id} className="border-gray-700 bg-gray-800/50 hover:bg-gray-800/70 transition-all">
-                <CardContent className="p-6 space-y-4">
+              <Card key={candidate.id} className="border-gray-700 bg-gray-800/50 hover:bg-gray-800/70 transition-all overflow-hidden">
+                <CardContent className="p-4 sm:p-6 space-y-4">
                   {/* Header with Delete */}
                   <div className="flex items-start gap-3 justify-between">
                     <div className="flex items-start gap-3 flex-1">
-                      <Avatar className="h-12 w-12 border-2 border-gray-700">
+                      <Avatar className="h-10 w-10 sm:h-12 sm:w-12 border-2 border-gray-700 shrink-0">
                         <AvatarFallback className="bg-gradient-to-br from-blue-600 to-purple-600 text-white font-semibold">
                           {getInitials(candidate.name)}
                         </AvatarFallback>
@@ -296,7 +296,7 @@ export default function CandidatesPage() {
                         </Badge>
                       </div>
                     </div>
-                    <div className="flex items-center gap-1">
+                    <div className="flex items-center gap-1 shrink-0">
                       <Button
                         size="sm"
                         variant="ghost"

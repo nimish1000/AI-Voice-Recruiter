@@ -57,16 +57,16 @@ export function InterviewCard({ candidate, onViewDetails }: InterviewCardProps) 
       <CardContent className="p-5">
         <div className="flex justify-between items-start mb-4">
           <div className="flex items-center gap-3">
-            <div className={`p-2 rounded-lg ${isCompleted ? 'bg-emerald-500/10' : 'bg-blue-500/10'}`}>
+            <div className={`p-2 rounded-lg shrink-0 ${isCompleted ? 'bg-emerald-500/10' : 'bg-blue-500/10'}`}>
               <User className={`h-5 w-5 ${isCompleted ? 'text-emerald-400' : 'text-blue-400'}`} />
             </div>
-            <div>
-              <h3 className="text-white font-semibold flex items-center gap-2">
+            <div className="min-w-0">
+              <h3 className="text-white font-semibold flex items-center gap-2 truncate">
                 {candidate.candidateName}
-                {isCompleted && <CheckCircle2 className="h-4 w-4 text-emerald-500" />}
+                {isCompleted && <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />}
               </h3>
-              <p className="text-xs text-gray-400 flex items-center gap-1">
-                <Mail className="h-3 w-3" />
+              <p className="text-xs text-gray-400 flex items-center gap-1 truncate">
+                <Mail className="h-3 w-3 shrink-0" />
                 {candidate.candidateEmail}
               </p>
             </div>
