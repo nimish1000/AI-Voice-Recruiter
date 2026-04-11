@@ -176,7 +176,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
         {/* Main Content Area */}
         <main className="flex-1 flex flex-col min-w-0 bg-gradient-to-br from-gray-900 via-blue-900/20 to-gray-900">
           {/* Desktop Header */}
-          <header className="hidden lg:flex sticky top-0 z-40 border-b border-gray-800 bg-gray-950/80 backdrop-blur-xl px-6 py-4">
+          <header className="hidden md:flex sticky top-0 z-40 border-b border-gray-800 bg-gray-950/80 backdrop-blur-xl px-6 py-4">
             <div className="flex-1">
               <h1 className="text-xl font-semibold text-white">Dashboard</h1>
             </div>
@@ -192,7 +192,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
           </header>
 
           {/* Mobile Header */}
-          <header className="lg:hidden sticky top-0 z-40 border-b border-gray-800 bg-gray-950/80 backdrop-blur-xl px-4 py-3">
+          <header className="md:hidden sticky top-0 z-40 border-b border-gray-800 bg-gray-950/80 backdrop-blur-xl px-4 py-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <SidebarTrigger>

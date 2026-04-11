@@ -197,11 +197,11 @@ export default function CandidatesPage() {
 
   return (
     <DashboardLayout>
-      <div className="p-6 lg:p-8">
+      <div className="p-4 md:p-6 lg:p-8">
         {/* Header + Search */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
           <div>
-            <h1 className="text-3xl lg:text-4xl font-bold text-white mb-2">
+            <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-white mb-2">
               Candidates
             </h1>
             <p className="text-gray-400">
@@ -273,7 +273,7 @@ export default function CandidatesPage() {
           </div>
         ) : viewMode === 'grid' ? (
           /* Grid View */
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
             {paginatedCandidates.map((candidate, index) => {
               console.log(`Rendering candidate ${index}:`, { id: candidate.id, name: candidate.name });
               return (

@@ -111,11 +111,11 @@ export default function SettingsPage() {
 
   return (
     <DashboardLayout>
-      <div className="p-6 lg:p-10 max-w-5xl mx-auto space-y-8">
+      <div className="p-4 md:p-6 lg:p-10 max-w-5xl mx-auto space-y-8">
         {/* Header Section */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
           <div className="space-y-1">
-            <h1 className="text-3xl font-extrabold text-white tracking-tight flex items-center gap-3">
+            <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight flex items-center gap-3">
               <Settings2 className="h-8 w-8 text-blue-500" />
               Agent Configuration
             </h1>

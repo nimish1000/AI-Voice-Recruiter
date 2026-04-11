@@ -110,11 +110,11 @@ export default function SchedulesPage() {
 
   return (
     <DashboardLayout>
-      <div className="p-6 lg:p-8 space-y-8">
+      <div className="p-4 md:p-6 lg:p-8 space-y-8">
         {/* Header */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
-            <h1 className="text-3xl font-bold text-white mb-2">Schedules & Interviews</h1>
+            <h1 className="text-2xl sm:text-3xl font-bold text-white mb-2">Schedules & Interviews</h1>
             <p className="text-gray-400">Track candidate invitations and AI assessment results</p>
           </div>
         </div>
