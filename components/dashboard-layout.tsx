@@ -152,7 +152,6 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
                       {user?.primaryEmailAddress?.emailAddress || 'Loading...'}
                     </p>
                   </div>
-                  <Settings className="h-4 w-4 text-gray-500" />
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-56 bg-gray-900 border-gray-800">
