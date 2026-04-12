@@ -35,6 +35,9 @@ interface InterviewQuestion {
   category: string;
 }
 
+/** Web Speech auto-send uses this; keep low enough for short answers but avoid noise. */
+const MIN_VOICE_RESPONSE_CHARS = 5;
+
 export default function InterviewSessionPage() {
   const params = useParams();
   const router = useRouter();
@@ -67,6 +70,12 @@ export default function InterviewSessionPage() {
   const wsRef = useRef<WebSocket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const audioContextClosedRef = useRef<boolean>(false);
+  const micStreamRef = useRef<MediaStream | null>(null);
+  const isAISpeakingRef = useRef(false);
+  const isCallActiveRef = useRef(false);
+  /** Latest combined final + interim text; read when the pause-timeout fires (avoids stale snapshot bugs). */
+  const liveSpeechTextRef = useRef('');
+  const handleUserMessageRef = useRef<(text: string) => void | Promise<void>>(() => {});
 
   // Mock interview questions based on job description
   const [interviewQuestions, setInterviewQuestions] = useState<InterviewQuestion[]>([
@@ -89,6 +98,14 @@ export default function InterviewSessionPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  useEffect(() => {
+    isAISpeakingRef.current = isAISpeaking;
+  }, [isAISpeaking]);
+
+  useEffect(() => {
+    isCallActiveRef.current = isCallActive;
+  }, [isCallActive]);
+
   // Initialize webcam
   const initializeCamera = useCallback(async () => {
     try {
@@ -107,20 +124,20 @@ export default function InterviewSessionPage() {
     }
   }, []);
 
-  // Initialize microphone for speech recognition
-  const initializeMicrophone = useCallback(async () => {
+  // Not memoized: must call the current render's setupSpeechRecognition (useCallback([]) froze a stale closure before).
+  const initializeMicrophone = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        audio: true 
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: true,
       });
-      
-      // Set up continuous speech recognition
+      micStreamRef.current = stream;
+
       setupSpeechRecognition();
     } catch (error) {
       console.error('Error accessing microphone:', error);
       alert('Unable to access microphone. Please check permissions and ensure your device has a microphone.');
     }
-  }, []);
+  };
 
   // Setup continuous speech recognition
   const setupSpeechRecognition = () => {
@@ -153,8 +170,12 @@ export default function InterviewSessionPage() {
         }
       }
       
-      const currentText = finalTranscript.trim() || interimTranscript.trim();
+      const currentText = [finalTranscript.trim(), interimTranscript.trim()]
+        .filter(Boolean)
+        .join(' ')
+        .trim();
       if (currentText) {
+        liveSpeechTextRef.current = currentText;
         console.log('🎤 Speech detected:', currentText);
         console.log('📝 Final transcript length:', finalTranscript.trim().length, 'Interim:', interimTranscript.trim().length);
         
@@ -167,19 +188,18 @@ export default function InterviewSessionPage() {
           clearTimeout(autoSendTimeoutRef.current);
         }
         
-        // Capture the current transcript value
-        const transcriptSnapshot = finalTranscript.trim();
         autoSendTimeoutRef.current = setTimeout(() => {
-          const textToSend = transcriptSnapshot || finalTranscript.trim();
+          const textToSend = liveSpeechTextRef.current.trim();
           console.log('⏱️ Timeout triggered - Text to send:', textToSend, 'Length:', textToSend.length);
           
-          if (textToSend.length > 10) {
+          if (textToSend.length >= MIN_VOICE_RESPONSE_CHARS) {
             console.log('✅ Auto-sending response:', textToSend);
-            handleUserMessage(textToSend);
+            void handleUserMessageRef.current(textToSend);
             finalTranscript = '';
+            liveSpeechTextRef.current = '';
             setInputMessage('');
           } else {
-            console.log('❌ Text too short, not sending:', textToSend.length, 'chars (minimum 10)');
+            console.log('❌ Text too short, not sending:', textToSend.length, 'chars (minimum ' + MIN_VOICE_RESPONSE_CHARS + ')');
           }
         }, 2500);
       }
@@ -212,14 +232,19 @@ export default function InterviewSessionPage() {
       console.log('Speech recognition ended (this is normal during operation)');
       setIsListening(false);
       
-      // Always try to restart if call is active
+      // Do not restart while the AI is speaking — utterance.onend will call start().
+      // Otherwise we fight TTS (stop/start races) and Chrome often stops emitting results.
       setTimeout(() => {
+        if (!isCallActiveRef.current) return;
+        if (isAISpeakingRef.current) {
+          console.log('⏸️ Skipping recognition restart while AI is speaking');
+          return;
+        }
         try {
           recognition.start();
           setIsListening(true);
           console.log('✅ Speech recognition restarted successfully');
         } catch (error: any) {
-          // "already started" error is normal, ignore it
           if (error.name !== 'InvalidStateError') {
             console.log('Recognition will restart on next cycle');
           }
@@ -583,7 +608,7 @@ export default function InterviewSessionPage() {
 
   // Handle user message - auto-send when speaking is detected
   const handleUserMessage = async (text: string) => {
-    if (!text.trim() || text.length < 10) {
+    if (!text.trim() || text.length < MIN_VOICE_RESPONSE_CHARS) {
       console.log('Response too short, ignoring:', text.length, 'chars');
       return;
     }
@@ -642,6 +667,10 @@ export default function InterviewSessionPage() {
     console.log('Scheduling next question in 2 seconds...');
     setTimeout(() => askNextQuestion(), 2000);
   };
+
+  useEffect(() => {
+    handleUserMessageRef.current = handleUserMessage;
+  });
 
   // Send message manually
   const sendMessage = () => {
@@ -716,6 +745,10 @@ export default function InterviewSessionPage() {
       streamRef.current.getTracks().forEach(track => track.stop());
       streamRef.current = null;
     }
+    if (micStreamRef.current) {
+      micStreamRef.current.getTracks().forEach(track => track.stop());
+      micStreamRef.current = null;
+    }
     
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       mediaRecorderRef.current.stop();
@@ -760,6 +793,10 @@ export default function InterviewSessionPage() {
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(track => track.stop());
         streamRef.current = null;
+      }
+      if (micStreamRef.current) {
+        micStreamRef.current.getTracks().forEach(track => track.stop());
+        micStreamRef.current = null;
       }
       
       // Close WebSocket
@@ -1025,9 +1062,9 @@ export default function InterviewSessionPage() {
               <div className="mb-3 p-3 bg-gray-800/50 border border-gray-700 rounded-lg">
                 <p className="text-xs text-gray-400 mb-1">Your response:</p>
                 <p className="text-sm text-white">{inputMessage}</p>
-                {inputMessage.length < 10 && (
+                {inputMessage.length < MIN_VOICE_RESPONSE_CHARS && (
                   <p className="text-[10px] text-orange-400 mt-1">
-                    ⚠️ Please speak more (minimum 10 characters)
+                    ⚠️ Please speak a bit more (minimum {MIN_VOICE_RESPONSE_CHARS} characters)
                   </p>
                 )}
               </div>
