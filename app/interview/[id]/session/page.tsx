@@ -70,7 +70,6 @@ export default function InterviewSessionPage() {
   const wsRef = useRef<WebSocket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const audioContextClosedRef = useRef<boolean>(false);
-  const micStreamRef = useRef<MediaStream | null>(null);
   const isAISpeakingRef = useRef(false);
   const isCallActiveRef = useRef(false);
   /** Set true synchronously before recognition.stop() for TTS; onend must not auto-restart until utterance ends. */
@@ -129,10 +128,15 @@ export default function InterviewSessionPage() {
   // Not memoized: must call the current render's setupSpeechRecognition (useCallback([]) froze a stale closure before).
   const initializeMicrophone = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: true,
+      const permissionStream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
       });
-      micStreamRef.current = stream;
+      // Release the permission stream immediately so SpeechRecognition can exclusively use the mic on strict devices.
+      permissionStream.getTracks().forEach((track) => track.stop());
 
       // Do not call recognition.start() yet — avoids start → immediate stop for welcome TTS (Chrome bug / no-speech loops).
       setupSpeechRecognition({ deferInitialStart: true });
@@ -229,6 +233,16 @@ export default function InterviewSessionPage() {
       } else {
         console.warn('Speech recognition event:', event.error);
       }
+    };
+
+    recognition.onaudiostart = () => {
+      console.log('🎙️ Microphone audio stream detected by SpeechRecognition');
+    };
+    recognition.onspeechstart = () => {
+      console.log('🗣️ Speech start detected');
+    };
+    recognition.onspeechend = () => {
+      console.log('🛑 Speech end detected');
     };
     
     recognition.onend = () => {
@@ -778,10 +792,6 @@ export default function InterviewSessionPage() {
       streamRef.current.getTracks().forEach(track => track.stop());
       streamRef.current = null;
     }
-    if (micStreamRef.current) {
-      micStreamRef.current.getTracks().forEach(track => track.stop());
-      micStreamRef.current = null;
-    }
     
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       mediaRecorderRef.current.stop();
@@ -826,10 +836,6 @@ export default function InterviewSessionPage() {
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(track => track.stop());
         streamRef.current = null;
-      }
-      if (micStreamRef.current) {
-        micStreamRef.current.getTracks().forEach(track => track.stop());
-        micStreamRef.current = null;
       }
       
       // Close WebSocket
