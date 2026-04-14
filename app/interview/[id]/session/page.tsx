@@ -73,6 +73,8 @@ export default function InterviewSessionPage() {
   const micStreamRef = useRef<MediaStream | null>(null);
   const isAISpeakingRef = useRef(false);
   const isCallActiveRef = useRef(false);
+  /** Set true synchronously before recognition.stop() for TTS; onend must not auto-restart until utterance ends. */
+  const recognitionPausedForAIRef = useRef(false);
   /** Latest combined final + interim text; read when the pause-timeout fires (avoids stale snapshot bugs). */
   const liveSpeechTextRef = useRef('');
   const handleUserMessageRef = useRef<(text: string) => void | Promise<void>>(() => {});
@@ -132,7 +134,8 @@ export default function InterviewSessionPage() {
       });
       micStreamRef.current = stream;
 
-      setupSpeechRecognition();
+      // Do not call recognition.start() yet — avoids start → immediate stop for welcome TTS (Chrome bug / no-speech loops).
+      setupSpeechRecognition({ deferInitialStart: true });
     } catch (error) {
       console.error('Error accessing microphone:', error);
       alert('Unable to access microphone. Please check permissions and ensure your device has a microphone.');
@@ -140,7 +143,7 @@ export default function InterviewSessionPage() {
   };
 
   // Setup continuous speech recognition
-  const setupSpeechRecognition = () => {
+  const setupSpeechRecognition = (opts?: { deferInitialStart?: boolean }) => {
     if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
       alert('Speech recognition is not supported in your browser. Please use Chrome, Edge, or Safari.');
       return;
@@ -232,10 +235,13 @@ export default function InterviewSessionPage() {
       console.log('Speech recognition ended (this is normal during operation)');
       setIsListening(false);
       
-      // Do not restart while the AI is speaking — utterance.onend will call start().
-      // Otherwise we fight TTS (stop/start races) and Chrome often stops emitting results.
+      // Do not auto-restart after we intentionally stopped for TTS — refs update before stop(), unlike React state.
       setTimeout(() => {
         if (!isCallActiveRef.current) return;
+        if (recognitionPausedForAIRef.current) {
+          console.log('⏸️ Skipping recognition restart (paused for AI TTS)');
+          return;
+        }
         if (isAISpeakingRef.current) {
           console.log('⏸️ Skipping recognition restart while AI is speaking');
           return;
@@ -252,14 +258,18 @@ export default function InterviewSessionPage() {
       }, 300);
     };
     
-    // Start recognition
-    try {
-      recognition.start();
-      console.log('✅ Speech recognition started successfully');
-    } catch (error: any) {
-      console.error('❌ Failed to start recognition:', error.message || error);
-      // Don't block the interview - user can still type responses
+    // Start recognition (optional defer: first start happens in utterance.onend after welcome TTS)
+    if (!opts?.deferInitialStart) {
+      try {
+        recognition.start();
+        console.log('✅ Speech recognition started successfully');
+      } catch (error: any) {
+        console.error('❌ Failed to start recognition:', error.message || error);
+        setIsListening(false);
+      }
+    } else {
       setIsListening(false);
+      console.log('🎤 Speech recognition ready — will start after the AI finishes speaking');
     }
     
     // Store recognition instance for cleanup
@@ -290,6 +300,8 @@ export default function InterviewSessionPage() {
 
   // Murf.ai Falcon TTS Streaming
   const speakWithMurf = async (text: string) => {
+    // Sync immediately so recognition.onend (fires on a timer) never races React useEffect.
+    isAISpeakingRef.current = true;
     setIsAISpeaking(true);
     
     try {
@@ -348,6 +360,8 @@ export default function InterviewSessionPage() {
       
     } catch (error) {
       console.error('Error with Murf TTS:', error);
+      isAISpeakingRef.current = false;
+      recognitionPausedForAIRef.current = false;
       setIsAISpeaking(false);
       fallbackToWebSpeech(text);
     }
@@ -380,7 +394,9 @@ export default function InterviewSessionPage() {
       
       utterance.onstart = () => {
         console.log('🔊 AI started speaking');
+        isAISpeakingRef.current = true;
         setIsAISpeaking(true);
+        recognitionPausedForAIRef.current = true;
         // Stop speech recognition while AI is speaking
         if ((window as any).speechRecognition) {
           try {
@@ -395,8 +411,10 @@ export default function InterviewSessionPage() {
       
       utterance.onend = () => {
         console.log('🔇 AI finished speaking');
+        recognitionPausedForAIRef.current = false;
+        isAISpeakingRef.current = false;
         setIsAISpeaking(false);
-        // Restart speech recognition after AI finishes
+        // Let audio output settle before listening again (reduces echo / false no-speech)
         setTimeout(() => {
           if ((window as any).speechRecognition) {
             try {
@@ -412,7 +430,7 @@ export default function InterviewSessionPage() {
           } else {
             console.warn('⚠️ Speech recognition not available to restart');
           }
-        }, 500);
+        }, 750);
       };
       
       utterance.onerror = (event) => {
@@ -420,6 +438,8 @@ export default function InterviewSessionPage() {
         if (event.error !== 'interrupted' && event.error !== 'canceled') {
           console.warn('Speech synthesis warning:', event.error);
         }
+        recognitionPausedForAIRef.current = false;
+        isAISpeakingRef.current = false;
         setIsAISpeaking(false);
         // Restart speech recognition on error
         setTimeout(() => {
@@ -434,13 +454,26 @@ export default function InterviewSessionPage() {
               }
             }
           }
-        }, 500);
+        }, 750);
       };
       
       window.speechSynthesis.speak(utterance);
     } else {
       console.warn('Web Speech API not supported');
+      isAISpeakingRef.current = false;
+      recognitionPausedForAIRef.current = false;
       setIsAISpeaking(false);
+      setTimeout(() => {
+        if ((window as any).speechRecognition) {
+          try {
+            (window as any).speechRecognition.start();
+            setIsListening(true);
+            console.log('✅ Speech recognition started (no TTS available)');
+          } catch (e: any) {
+            if (e.name !== 'InvalidStateError') console.warn('Speech recognition start:', e);
+          }
+        }
+      }, 300);
     }
   };
 
