@@ -35,8 +35,8 @@ interface InterviewQuestion {
   category: string;
 }
 
-/** Web Speech auto-send uses this; keep low enough for short answers but avoid noise. */
-const MIN_VOICE_RESPONSE_CHARS = 5;
+/** Web Speech auto-send uses this; keep very low so short valid answers are not dropped. */
+const MIN_VOICE_RESPONSE_CHARS = 1;
 
 export default function InterviewSessionPage() {
   const params = useParams();
@@ -726,6 +726,30 @@ export default function InterviewSessionPage() {
     }
   };
 
+  // Emergency fallback: re-arm browser speech recognition with explicit user gesture.
+  const retryMicrophoneRecognition = () => {
+    if ((window as any).speechRecognition) {
+      try {
+        (window as any).speechRecognition.stop();
+      } catch {
+        // no-op
+      }
+      setTimeout(() => {
+        try {
+          (window as any).speechRecognition.start();
+          setIsListening(true);
+          console.log('✅ Speech recognition re-armed from user action');
+        } catch (error: any) {
+          console.warn('Retry microphone failed:', error?.message || error);
+        }
+      }, 150);
+      return;
+    }
+
+    // If instance is missing for any reason, rebuild and start it now.
+    setupSpeechRecognition();
+  };
+
   // Toggle mute
   const toggleMute = () => {
     setIsMuted(!isMuted);
@@ -1116,6 +1140,38 @@ export default function InterviewSessionPage() {
                 Speak your answer clearly. Your response will be automatically sent after you pause.
                 {isListening && <span className="block mt-1 text-green-300">✓ Microphone is active</span>}
               </p>
+            </div>
+
+            {/* Reliability fallback controls */}
+            <div className="space-y-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={retryMicrophoneRecognition}
+                className="w-full border-gray-700 text-gray-200 hover:bg-gray-800"
+              >
+                <Mic className="h-4 w-4 mr-2" />
+                Retry Microphone Recognition
+              </Button>
+
+              <div className="flex items-center gap-2">
+                <Input
+                  value={inputMessage}
+                  onChange={(e) => setInputMessage(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      sendMessage();
+                    }
+                  }}
+                  placeholder="Fallback: type your answer here and press Enter"
+                  className="bg-gray-800 border-gray-700 text-white placeholder:text-gray-500"
+                />
+                <Button type="button" onClick={sendMessage} className="shrink-0">
+                  <Send className="h-4 w-4 mr-1" />
+                  Send
+                </Button>
+              </div>
             </div>
           </div>
         </Card>
