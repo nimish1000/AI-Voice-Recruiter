@@ -37,12 +37,46 @@ interface InterviewQuestion {
 
 /** Web Speech auto-send uses this; keep very low so short valid answers are not dropped. */
 const MIN_VOICE_RESPONSE_CHARS = 1;
-const FALLBACK_MIN_CHUNK_BYTES = 1200;
+const FALLBACK_MIN_CHUNK_BYTES = 500;
 const FALLBACK_COMBINE_BYTES = 2500;
 /** Must be longer than recorder timeslice (3500ms) to avoid echo from AI speech */
-const FALLBACK_POST_AI_COOLDOWN_MS = 5000;
+const FALLBACK_POST_AI_COOLDOWN_MS = 1500;
 /** Number of consecutive 'no-speech' errors before switching to fallback mode */
-const NO_SPEECH_THRESHOLD = 8;
+const NO_SPEECH_THRESHOLD = 2;
+
+const WHISPER_HALLUCINATION_PHRASES = [
+  'thank you',
+  'thank you for watching',
+  'please subscribe',
+  'subtitle by',
+  'thanks for watching',
+  'bye',
+  'goodbye',
+  'you',
+];
+
+/** Returns true if the transcript is a Whisper hallucination (silence noise → garbage text) */
+const isWhisperHallucination = (text: string): boolean => {
+  const cleaned = text.toLowerCase().replace(/[.,!?;:]+/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!cleaned) return true;
+  
+  // Direct full-match
+  if (WHISPER_HALLUCINATION_PHRASES.includes(cleaned)) return true;
+  if (cleaned === 'okay' || cleaned === 'ok' || cleaned === 'okay.') return true;
+  if (cleaned.includes('thank you') && cleaned.length < 30 && !cleaned.includes('my')) return true;
+  
+  // Split into sentences / segments and check if ALL are hallucinations
+  const segments = cleaned.split(/[.!?]+/).map(s => s.trim()).filter(Boolean);
+  if (segments.length > 0 && segments.every(seg => WHISPER_HALLUCINATION_PHRASES.includes(seg))) return true;
+  
+  // Very short + only hallucination words
+  const words = cleaned.split(/\s+/);
+  const hallucinationWords = new Set(['okay', 'ok', 'thank', 'you', 'thanks', 'for', 'watching', 'please', 'subscribe', 'subtitle', 'by', 'bye', 'goodbye', 'these', 'questions']);
+  if (words.length <= 8 && words.every(w => hallucinationWords.has(w))) return true;
+  
+  return false;
+};
+
 
 export default function InterviewSession() {
   const params = useParams();
@@ -94,6 +128,9 @@ export default function InterviewSession() {
   const liveSpeechTextRef = useRef('');
   const handleUserMessageRef = useRef<(text: string) => void | Promise<void>>(() => {});
   const [sttMode, setSttMode] = useState<'browser' | 'fallback'>('browser');
+  const sttModeRef = useRef<'browser' | 'fallback'>('browser');
+  const [micLevel, setMicLevel] = useState(0);
+  const micAnalyserRef = useRef<AnalyserNode | null>(null);
 
   // Mock interview questions based on job description
   const [interviewQuestions, setInterviewQuestions] = useState<InterviewQuestion[]>([
@@ -123,6 +160,10 @@ export default function InterviewSession() {
   useEffect(() => {
     isCallActiveRef.current = isCallActive;
   }, [isCallActive]);
+
+  useEffect(() => {
+    sttModeRef.current = sttMode;
+  }, [sttMode]);
 
   // Initialize webcam
   const initializeCamera = useCallback(async () => {
@@ -160,9 +201,49 @@ export default function InterviewSession() {
         video: false,
       });
 
+      // ---- Mic diagnostic: log track info and monitor audio levels ----
+      const tracks = micPermissionStreamRef.current.getAudioTracks();
+      tracks.forEach((track, i) => {
+        console.log(`🎙️ Mic track ${i}: label="${track.label}", enabled=${track.enabled}, muted=${track.muted}, readyState=${track.readyState}`);
+        const settings = track.getSettings();
+        console.log(`🎙️ Track settings:`, JSON.stringify(settings));
+      });
+
+      // Audio level meter — updates UI every 500ms so user can visually see mic activity
+      try {
+        const diagCtx = new AudioContext();
+        const source = diagCtx.createMediaStreamSource(micPermissionStreamRef.current);
+        const analyser = diagCtx.createAnalyser();
+        analyser.fftSize = 256;
+        source.connect(analyser);
+        micAnalyserRef.current = analyser;
+        const dataArray = new Uint8Array(analyser.frequencyBinCount);
+        const levelInterval = setInterval(() => {
+          if (!micPermissionStreamRef.current || !isCallActiveRef.current) {
+            clearInterval(levelInterval);
+            diagCtx.close();
+            return;
+          }
+          analyser.getByteTimeDomainData(dataArray);
+          // Calculate RMS level (0-100)
+          let sumSquares = 0;
+          for (let i = 0; i < dataArray.length; i++) {
+            const normalized = (dataArray[i] - 128) / 128;
+            sumSquares += normalized * normalized;
+          }
+          const rms = Math.sqrt(sumSquares / dataArray.length);
+          const level = Math.min(100, Math.round(rms * 500));
+          setMicLevel(level);
+        }, 500);
+      } catch (e) {
+        console.warn('Audio level diagnostic failed:', e);
+      }
+      // ---- End mic diagnostic ----
+
       setupSpeechRecognition({ deferInitialStart: true });
-      // NOTE: Do NOT start fallback recorder here. Let browser STT try first.
-      // Fallback will be started automatically if browser STT fails repeatedly.
+      // Start fallback recorder immediately alongside browser STT
+      // so transcription works even if browser STT never picks up speech
+      startFallbackTranscription();
     } catch (error) {
       console.error('Error accessing microphone:', error);
       alert('Unable to access microphone. Please check permissions and ensure your device has a microphone.');
@@ -206,8 +287,7 @@ export default function InterviewSession() {
 
   /** Resume the fallback recorder after AI finishes speaking */
   const resumeFallbackRecorder = () => {
-    // Only restart if we're in fallback mode
-    if (sttMode !== 'fallback') return;
+    // Always restart the fallback recorder — use ref to avoid stale closure
     // Clear any stale chunks first
     fallbackChunkBufferRef.current = [];
     fallbackChunkBytesRef.current = 0;
@@ -245,7 +325,14 @@ export default function InterviewSession() {
 
       const data = await response.json();
       const transcript = (data.transcript || '').trim();
+      console.log(`🤖 [Client] Received transcript: "${transcript}"`);
       if (!transcript || transcript === lastFallbackTranscriptRef.current) return;
+
+      // Filter hallucinations
+      if (isWhisperHallucination(transcript)) {
+        console.log('🚫 Filtered Whisper hallucination in frontend:', transcript);
+        return;
+      }
 
       // ECHO DETECTION: reject transcripts that match what the AI just said
       if (isEchoOfAISpeech(transcript)) {
@@ -256,14 +343,28 @@ export default function InterviewSession() {
       setSttMode('fallback');
       fallbackNoSpeechCountRef.current = 0;
       lastFallbackTranscriptRef.current = transcript;
-      liveSpeechTextRef.current = transcript;
-      setInputMessage(transcript);
+      
+      // STABILITY: Only update if the new transcript is more substantial or different
+      // This prevents "Thank you" (if it slips through) or short noise from deleting a long sentence.
+      const currentText = liveSpeechTextRef.current.trim();
+      if (!currentText || transcript.length >= currentText.length || transcript.toLowerCase().includes(currentText.toLowerCase())) {
+        liveSpeechTextRef.current = transcript;
+        setInputMessage(transcript);
+      } else {
+        console.log('⏳ Skipping input update — existing text is longer/more substantial');
+      }
+      
       lastSpeechTimeRef.current = Date.now();
 
       if (autoSendTimeoutRef.current) clearTimeout(autoSendTimeoutRef.current);
       autoSendTimeoutRef.current = setTimeout(() => {
         const textToSend = liveSpeechTextRef.current.trim();
         if (textToSend.length >= MIN_VOICE_RESPONSE_CHARS) {
+          // Final hallucination check
+          if (isWhisperHallucination(textToSend)) {
+            console.log('🚫 Refused to auto-send hallucination:', textToSend);
+            return;
+          }
           // Final echo check before sending
           if (isEchoOfAISpeech(textToSend)) {
             console.log('🔇 Blocked echo from auto-send:', textToSend);
@@ -276,7 +377,7 @@ export default function InterviewSession() {
           setInputMessage('');
           lastFallbackTranscriptRef.current = '';
         }
-      }, 2500);
+      }, 8000); // Increased from 2.5s to 8s to allow thinking time
     } catch (error) {
       console.warn('Fallback transcription failed:', error);
     } finally {
@@ -292,29 +393,45 @@ export default function InterviewSession() {
       const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
         ? 'audio/webm;codecs=opus'
         : 'audio/webm';
+      const chunks: Blob[] = [];
       const recorder = new MediaRecorder(micPermissionStreamRef.current, { mimeType });
       fallbackRecorderRef.current = recorder;
 
       recorder.ondataavailable = (event: BlobEvent) => {
         if (event.data && event.data.size > 0) {
-          console.log('🎧 Fallback recorder chunk received:', event.data.size, 'bytes');
-          fallbackChunkBufferRef.current.push(event.data);
-          fallbackChunkBytesRef.current += event.data.size;
-
-          // Combine tiny chunks to produce a valid media payload for STT.
-          if (fallbackChunkBytesRef.current >= FALLBACK_COMBINE_BYTES) {
-            const combinedBlob = new Blob(fallbackChunkBufferRef.current, {
-              type: event.data.type || 'audio/webm',
-            });
-            fallbackChunkBufferRef.current = [];
-            fallbackChunkBytesRef.current = 0;
-            void transcribeAudioChunk(combinedBlob);
-          }
+          chunks.push(event.data);
         }
       };
 
-      recorder.start(3500);
+      recorder.onstop = () => {
+        // Combine all chunks into a COMPLETE, valid WebM file
+        const completeBlob = new Blob(chunks, { type: mimeType });
+        console.log('🎧 Fallback recorder produced complete file:', completeBlob.size, 'bytes');
+        
+        if (completeBlob.size >= FALLBACK_MIN_CHUNK_BYTES) {
+          void transcribeAudioChunk(completeBlob);
+        }
+
+        // Auto-restart recording if call is still active and AI isn't speaking
+        if (isCallActiveRef.current && !isAISpeakingRef.current) {
+          setTimeout(() => {
+            if (isCallActiveRef.current && !isAISpeakingRef.current) {
+              startFallbackTranscription();
+            }
+          }, 200);
+        }
+      };
+
+      // Start recording without timeslice — produces complete files on stop()
+      recorder.start();
       console.log('🎧 Fallback transcription recorder started');
+
+      // Stop after 3 seconds to produce a complete, valid audio file
+      setTimeout(() => {
+        if (recorder.state === 'recording') {
+          recorder.stop();
+        }
+      }, 3000);
     } catch (error) {
       console.warn('Unable to start fallback transcription recorder:', error);
     }
@@ -391,7 +508,7 @@ export default function InterviewSession() {
           } else {
             console.log('❌ Text too short, not sending:', textToSend.length, 'chars (minimum ' + MIN_VOICE_RESPONSE_CHARS + ')');
           }
-        }, 2500);
+        }, 8000); // Increased from 2.5s to 8s to allow thinking time
       }
     };
     
@@ -583,6 +700,37 @@ export default function InterviewSession() {
     }
   };
 
+  /** Shared cleanup when AI finishes speaking (used by onend + watchdog) */
+  const handleAISpeechEnd = () => {
+    if (!isAISpeakingRef.current) return; // already handled
+    console.log('🔇 AI finished speaking');
+    lastAISpeechEndAtRef.current = Date.now();
+    recognitionPausedForAIRef.current = false;
+    isAISpeakingRef.current = false;
+    setIsAISpeaking(false);
+    // Let audio output settle before listening again (reduces echo / false no-speech)
+    setTimeout(() => {
+      // RESUME fallback recorder now that AI is done (after cooldown buffer)
+      resumeFallbackRecorder();
+      if ((window as any).speechRecognition) {
+        try {
+          (window as any).speechRecognition.start();
+          setIsListening(true);
+          console.log('✅ Speech recognition restarted (AI done)');
+        } catch (error: any) {
+          // "already started" error is normal, ignore it
+          if (error.name !== 'InvalidStateError') {
+            console.log('Recognition restart attempt:', error.message || error);
+          }
+        }
+      } else {
+        // Speech recognition instance was lost - rebuild it
+        console.warn('⚠️ Speech recognition instance lost, rebuilding...');
+        setupSpeechRecognition();
+      }
+    }, 1500);
+  };
+
   // Fallback to Web Speech API
   const fallbackToWebSpeech = (text: string) => {
     if ('speechSynthesis' in window) {
@@ -607,6 +755,26 @@ export default function InterviewSession() {
       utterance.rate = 0.9; // Slightly slower for clarity
       utterance.pitch = 1.0;
       utterance.volume = isMuted ? 0 : 1;
+
+      // ---- Chrome watchdog: onend sometimes silently fails to fire ----
+      let watchdogInterval: ReturnType<typeof setInterval> | null = null;
+      let onendFired = false;
+      const startWatchdog = () => {
+        watchdogInterval = setInterval(() => {
+          if (onendFired) {
+            if (watchdogInterval) clearInterval(watchdogInterval);
+            return;
+          }
+          // If synthesis says it's no longer speaking but our flag is still set → onend was lost
+          if (!window.speechSynthesis.speaking && isAISpeakingRef.current) {
+            console.warn('🐛 Chrome watchdog: onend did not fire — forcing cleanup');
+            if (watchdogInterval) clearInterval(watchdogInterval);
+            onendFired = true;
+            handleAISpeechEnd();
+          }
+        }, 500);
+      };
+      // ---- end watchdog ----
       
       utterance.onstart = () => {
         console.log('🔊 AI started speaking');
@@ -625,38 +793,19 @@ export default function InterviewSession() {
             console.log('Recognition stop requested (already stopped is OK)');
           }
         }
+        // Start the watchdog AFTER speech actually begins
+        startWatchdog();
       };
       
       utterance.onend = () => {
-        console.log('🔇 AI finished speaking');
-        lastAISpeechEndAtRef.current = Date.now();
-        recognitionPausedForAIRef.current = false;
-        isAISpeakingRef.current = false;
-        setIsAISpeaking(false);
-        // Let audio output settle before listening again (reduces echo / false no-speech)
-        setTimeout(() => {
-          // RESUME fallback recorder now that AI is done (after cooldown buffer)
-          resumeFallbackRecorder();
-          if ((window as any).speechRecognition) {
-            try {
-              (window as any).speechRecognition.start();
-              setIsListening(true);
-              console.log('✅ Speech recognition restarted (AI done)');
-            } catch (error: any) {
-              // "already started" error is normal, ignore it
-              if (error.name !== 'InvalidStateError') {
-                console.log('Recognition restart attempt:', error.message || error);
-              }
-            }
-          } else {
-            // Speech recognition instance was lost - rebuild it
-            console.warn('⚠️ Speech recognition instance lost, rebuilding...');
-            setupSpeechRecognition();
-          }
-        }, 1500);
+        onendFired = true;
+        if (watchdogInterval) clearInterval(watchdogInterval);
+        handleAISpeechEnd();
       };
       
       utterance.onerror = (event) => {
+        onendFired = true;
+        if (watchdogInterval) clearInterval(watchdogInterval);
         // Don't log interrupted errors as they're normal
         if (event.error !== 'interrupted' && event.error !== 'canceled') {
           console.warn('Speech synthesis warning:', event.error);
@@ -666,6 +815,7 @@ export default function InterviewSession() {
         setIsAISpeaking(false);
         // Restart speech recognition on error
         setTimeout(() => {
+          resumeFallbackRecorder();
           if ((window as any).speechRecognition) {
             try {
               (window as any).speechRecognition.start();
@@ -1346,6 +1496,22 @@ export default function InterviewSession() {
                     <span className="text-xs text-green-300">Listening... Speak your answer</span>
                   </div>
                 )}
+                {/* Real-time mic level indicator */}
+                <div className="mt-2 space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] text-gray-400 w-14">Mic Level</span>
+                    <div className="flex-1 h-3 bg-gray-800 rounded-full overflow-hidden border border-gray-700">
+                      <div
+                        className={`h-full rounded-full transition-all duration-150 ${micLevel > 10 ? 'bg-green-500' : micLevel > 3 ? 'bg-yellow-500' : 'bg-red-500'}`}
+                        style={{ width: `${Math.max(2, micLevel)}%` }}
+                      />
+                    </div>
+                    <span className={`text-[10px] font-mono w-8 ${micLevel > 10 ? 'text-green-400' : 'text-red-400'}`}>{micLevel}</span>
+                  </div>
+                  {micLevel <= 3 && (
+                    <p className="text-[10px] text-red-400">⚠️ Mic appears silent! Check your microphone in Windows Sound Settings.</p>
+                  )}
+                </div>
               </div>
             )}
             

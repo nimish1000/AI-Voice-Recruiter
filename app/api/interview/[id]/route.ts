@@ -82,15 +82,20 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     } = body;
 
     // Find the interview record
-    const interview = await db.query.interviews.findFirst({
-      where: eq(interviews.interviewId, interviewId),
+    let interview = await db.query.interviews.findFirst({
+      where: eq(interviews.interviewId, interviewId || id),
     });
 
     if (!interview) {
-      return NextResponse.json(
-        { error: 'Interview not found' },
-        { status: 404 }
-      );
+      // Auto-create interview record if it doesn't exist yet (e.g. session started without DB entry)
+      console.log(`📝 Interview record not found for ${interviewId || id}, creating on-the-fly`);
+      const result = await db.insert(interviews).values({
+        interviewId: interviewId || id,
+        candidateName: 'Candidate',
+        status: 'in_progress',
+        startedAt: new Date(),
+      }).returning();
+      interview = result[0];
     }
 
     // Save the response
@@ -515,7 +520,7 @@ async function generateInterviewQuestions(jobTitle: string, jobDescription: stri
     - Return ONLY a valid JSON array of objects.
     - Each object must have "id" (number 1-8), "question" (string), and "category" (string).
     - Question 1: A warm introduction and request for background.
-    - Questions 2-5: Technical questions specific to the role "${jobTitle}" and its typical requirements.
+    - Questions 2-5: Technical questions specific to the role "${jobTitle}". IMPORTANT: If the role is "Software Developer", "Full Stack Developer", or similar engineering roles, you MUST include at least 3-4 questions specifically about Data Structures and Algorithms (DSA).
     - Questions 6-7: Behavioral or collaboration questions.
     - Question 8: Career goals and a flat closing question.
     
@@ -535,6 +540,17 @@ async function generateInterviewQuestions(jobTitle: string, jobDescription: stri
         .replace(/\[COMPANY_DESCRIPTION\]/g, companyDescription);
     }
 
+    // Force DSA requirement for engineering roles using code logic
+    const isEngineering = jobTitle.toLowerCase().includes('software') || 
+                          jobTitle.toLowerCase().includes('developer') || 
+                          jobTitle.toLowerCase().includes('engineer') ||
+                          jobTitle.toLowerCase().includes('stack') ||
+                          jobTitle.toLowerCase().includes('coder');
+                          
+    if (isEngineering) {
+      promptContent += `\n\nCRITICAL INSTRUCTION: YOU MUST explicitly make AT LEAST 3 to 4 of the technical questions focused purely on Data Structures and Algorithms (DSA) such as Arrays, HashMaps, Trees, Graphs, or Dynamic Programming. Do NOT ask only general web development questions. Ask specific coding/DSA problem-solving questions.`;
+    }
+
     const chatCompletion = await groq.chat.completions.create({
       messages: [{ role: 'user', content: promptContent }],
       model: 'llama-3.3-70b-versatile',
@@ -543,12 +559,33 @@ async function generateInterviewQuestions(jobTitle: string, jobDescription: stri
     });
 
     const content = chatCompletion.choices[0]?.message?.content || '[]';
+    console.log('🤖 GROQ RAW RESPONSE:', content);
     
-    // Handle cases where model might return { "questions": [...] } instead of directly [...]
-    const parsed = JSON.parse(content);
-    const questions = Array.isArray(parsed) ? parsed : (parsed.questions || []);
+    // Handle cases where model might return { "questions": [...] } or { "interviewQuestions": [...] }
+    let questions = [];
+    try {
+      const parsed = JSON.parse(content);
+      if (Array.isArray(parsed)) {
+        questions = parsed;
+      } else if (parsed.questions && Array.isArray(parsed.questions)) {
+        questions = parsed.questions;
+      } else if (parsed.interviewQuestions && Array.isArray(parsed.interviewQuestions)) {
+        questions = parsed.interviewQuestions;
+      } else {
+        // Just grab the first array we can find inside the object
+        const firstArray = Object.values(parsed).find(val => Array.isArray(val));
+        if (firstArray) questions = firstArray;
+      }
+    } catch (parseError) {
+      console.error('❌ JSON Parsing Error from Groq:', parseError);
+    }
 
-    if (questions.length > 0) return questions.slice(0, questionCount);
+    if (questions.length > 0) {
+      console.log(`✅ Successfully generated ${questions.length} questions from Groq.`);
+      return questions.slice(0, questionCount);
+    }
+    
+    console.warn('⚠️ Questions array empty, falling back.');
     return getFallbackQuestions(jobTitle, questionCount);
     
   } catch (error) {

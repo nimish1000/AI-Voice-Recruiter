@@ -158,9 +158,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
               <DropdownMenuContent align="end" className="w-56 bg-gray-900 border-gray-800">
                 <DropdownMenuLabel className="text-gray-400">My Account</DropdownMenuLabel>
                 <DropdownMenuSeparator className="bg-gray-800" />
-                <DropdownMenuItem asChild className="text-gray-300 focus:text-white focus:bg-gray-800 cursor-pointer">
-                  <Link href="/dashboard/profile">Profile Settings</Link>
-                </DropdownMenuItem>
+
                 <DropdownMenuItem asChild className="text-gray-300 focus:text-white focus:bg-gray-800 cursor-pointer">
                   <Link href="/dashboard/settings">Account Settings</Link>
                 </DropdownMenuItem>
