@@ -344,15 +344,12 @@ export default function InterviewSession() {
       fallbackNoSpeechCountRef.current = 0;
       lastFallbackTranscriptRef.current = transcript;
       
-      // STABILITY: Only update if the new transcript is more substantial or different
-      // This prevents "Thank you" (if it slips through) or short noise from deleting a long sentence.
+      // APPEND logic: Since the fallback recorder stops and restarts every 3 seconds, 
+      // each transcript is a new, discrete slice of audio. We must append them.
       const currentText = liveSpeechTextRef.current.trim();
-      if (!currentText || transcript.length >= currentText.length || transcript.toLowerCase().includes(currentText.toLowerCase())) {
-        liveSpeechTextRef.current = transcript;
-        setInputMessage(transcript);
-      } else {
-        console.log('⏳ Skipping input update — existing text is longer/more substantial');
-      }
+      const newText = currentText ? `${currentText} ${transcript}` : transcript;
+      liveSpeechTextRef.current = newText;
+      setInputMessage(newText);
       
       lastSpeechTimeRef.current = Date.now();
 
@@ -1029,7 +1026,11 @@ export default function InterviewSession() {
     };
     
     setMessages(prev => [...prev, userMessage]);
+    
+    // Completely clear all speech input state for the next question
     setInputMessage('');
+    liveSpeechTextRef.current = '';
+    lastFallbackTranscriptRef.current = '';
     
     // Save response to database
     try {
