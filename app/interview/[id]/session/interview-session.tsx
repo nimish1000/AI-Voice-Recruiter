@@ -14,7 +14,12 @@ import {
   VolumeX,
   User,
   Bot,
-  Loader2
+  Loader2,
+  Clock,
+  AlertTriangle,
+  Code2,
+  FileText,
+  BookOpen
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -33,6 +38,8 @@ interface InterviewQuestion {
   id: number;
   question: string;
   category: string;
+  difficulty?: string;
+  timeLimit?: number;
 }
 
 /** Web Speech auto-send uses this; keep very low so short valid answers are not dropped. */
@@ -148,6 +155,19 @@ export default function InterviewSession() {
   const [jobTitle, setJobTitle] = useState('Position');
   const [agentName, setAgentName] = useState('AI Interviewer');
 
+  // Technical round state
+  const [isTechnicalRound, setIsTechnicalRound] = useState(false);
+  const [userCode, setUserCode] = useState('');
+  const [perQuestionTimeMinutes, setPerQuestionTimeMinutes] = useState(30);
+  const [questionSecondsLeft, setQuestionSecondsLeft] = useState<number | null>(null);
+  const [overallSecondsLeft, setOverallSecondsLeft] = useState<number | null>(null);
+  const questionTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const overallTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const editorRef = useRef<HTMLTextAreaElement>(null);
+  const isTechnicalRoundRef = useRef(false);
+  const questionSecondsLeftRef = useRef<number | null>(null);
+  const overallSecondsLeftRef = useRef<number | null>(null);
+
   // Auto-scroll to bottom of chat
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -164,6 +184,27 @@ export default function InterviewSession() {
   useEffect(() => {
     sttModeRef.current = sttMode;
   }, [sttMode]);
+
+  // Sync technical round refs
+  useEffect(() => {
+    isTechnicalRoundRef.current = isTechnicalRound;
+  }, [isTechnicalRound]);
+
+  useEffect(() => {
+    questionSecondsLeftRef.current = questionSecondsLeft;
+  }, [questionSecondsLeft]);
+
+  useEffect(() => {
+    overallSecondsLeftRef.current = overallSecondsLeft;
+  }, [overallSecondsLeft]);
+
+  // Cleanup timers on unmount
+  useEffect(() => {
+    return () => {
+      if (questionTimerRef.current) clearInterval(questionTimerRef.current);
+      if (overallTimerRef.current) clearInterval(overallTimerRef.current);
+    };
+  }, []);
 
   // Initialize webcam
   const initializeCamera = useCallback(async () => {
@@ -854,6 +895,8 @@ export default function InterviewSession() {
     try {
       // 1. Try to initialize interview and fetch questions
       let activeQuestions = interviewQuestions;
+      let isTechRound = false;
+      let data: any = null;
       
       try {
         const response = await fetch(`/api/interview/${interviewId}`, {
@@ -866,7 +909,7 @@ export default function InterviewSession() {
         });
         
         if (response.ok) {
-          const data = await response.json();
+          data = await response.json();
           console.log('Interview session initialized:', data);
           
           if (data.questions && Array.isArray(data.questions) && data.questions.length > 0) {
@@ -875,6 +918,14 @@ export default function InterviewSession() {
             interviewQuestionsRef.current = data.questions;
             if (data.job?.title) setJobTitle(data.job.title);
             if (data.settings?.agentName) setAgentName(data.settings.agentName);
+            
+            // Technical round detection
+            if (data.isTechnicalRound) {
+              isTechRound = true;
+              setIsTechnicalRound(true);
+              isTechnicalRoundRef.current = true;
+              if (data.perQuestionTimeMinutes) setPerQuestionTimeMinutes(data.perQuestionTimeMinutes);
+            }
           }
         }
       } catch (e) {
@@ -904,9 +955,11 @@ export default function InterviewSession() {
       const firstQuestionText = activeQuestions[0].question;
       
       // Update first question if it's the generic fallback to include agent name
-      const welcomeText = firstQuestionText.includes("I'm your AI interviewer")
-        ? firstQuestionText.replace("I'm your AI interviewer", `I'm ${agentName || 'your AI interviewer'}`)
-        : firstQuestionText;
+      const welcomeText = isTechRound
+        ? `Welcome to the Technical Coding Round! I'm ${agentName || 'your AI interviewer'}. You will be given 2 DSA coding problems — one Medium and one Hard level. You have 30 minutes per question (1 hour total). Let's begin with Question 1:\n\n${firstQuestionText}`
+        : firstQuestionText.includes("I'm your AI interviewer")
+          ? firstQuestionText.replace("I'm your AI interviewer", `I'm ${agentName || 'your AI interviewer'}`)
+          : firstQuestionText;
 
       const welcomeMessage: Message = {
         id: Date.now().toString(),
@@ -917,7 +970,87 @@ export default function InterviewSession() {
       
       setMessages([welcomeMessage]);
       
-      // 6. Start speaking first question
+      // 7. Start timers for technical round
+      if (isTechRound) {
+        const perQSeconds = (data?.perQuestionTimeMinutes || 30) * 60;
+        const totalSeconds = (data?.totalTimeMinutes || 60) * 60;
+        
+        setQuestionSecondsLeft(perQSeconds);
+        setOverallSecondsLeft(totalSeconds);
+        questionSecondsLeftRef.current = perQSeconds;
+        overallSecondsLeftRef.current = totalSeconds;
+
+        // Per-question countdown
+        questionTimerRef.current = setInterval(() => {
+          setQuestionSecondsLeft(prev => {
+            if (prev === null) return null;
+            const next = prev - 1;
+            questionSecondsLeftRef.current = next;
+            if (next <= 0) {
+              // Time up for this question — auto-advance
+              console.log('⏰ Per-question timer expired! Auto-advancing...');
+              const timeUpMsg: Message = {
+                id: Date.now().toString(),
+                role: 'ai',
+                content: '⏰ Time\'s up for this question! Moving to the next one.',
+                timestamp: new Date()
+              };
+              setMessages(p => [...p, timeUpMsg]);
+              // Trigger next question
+              setTimeout(() => {
+                // Save empty response for current question
+                const currentQIndex = currentQuestionIndexRef.current;
+                const latestQuestions = interviewQuestionsRef.current;
+                const currentQuestion = latestQuestions[currentQIndex];
+                if (currentQuestion) {
+                  fetch(`/api/interview/${interviewId}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      interviewId,
+                      questionNumber: currentQuestion.id,
+                      question: currentQuestion.question,
+                      category: currentQuestion.category,
+                      userResponse: '[Time expired - no answer submitted]',
+                    }),
+                  }).catch(console.error);
+                }
+                askNextQuestion();
+              }, 1500);
+              return null; // Stop counting
+            }
+            return next;
+          });
+        }, 1000);
+
+        // Overall countdown
+        overallTimerRef.current = setInterval(() => {
+          setOverallSecondsLeft(prev => {
+            if (prev === null) return null;
+            const next = prev - 1;
+            overallSecondsLeftRef.current = next;
+            if (next <= 0) {
+              // Overall time up — end interview
+              console.log('⏰ Overall timer expired! Ending interview...');
+              if (questionTimerRef.current) clearInterval(questionTimerRef.current);
+              if (overallTimerRef.current) clearInterval(overallTimerRef.current);
+              const timeUpMsg: Message = {
+                id: Date.now().toString(),
+                role: 'ai',
+                content: '⏰ The 1-hour time limit is up! Your interview is now being submitted.',
+                timestamp: new Date()
+              };
+              setMessages(p => [...p, timeUpMsg]);
+              speakWithMurf('Time is up! Your interview is now being submitted. Thank you for participating.');
+              setTimeout(() => endCall(), 5000);
+              return null;
+            }
+            return next;
+          });
+        }, 1000);
+      }
+      
+      // 8. Start speaking first question
       await speakWithMurf(welcomeText);
       
     } catch (error) {
@@ -952,10 +1085,19 @@ export default function InterviewSession() {
     // If all questions asked or none found, complete interview
     if (nextIndex === -1) {
       console.log('All questions completed!');
+      // Stop timers for technical round
+      if (isTechnicalRoundRef.current) {
+        if (questionTimerRef.current) clearInterval(questionTimerRef.current);
+        if (overallTimerRef.current) clearInterval(overallTimerRef.current);
+        setQuestionSecondsLeft(null);
+      }
+      
       const completionMessage: Message = {
         id: Date.now().toString(),
         role: 'ai',
-        content: "Thank you for completing the interview! We'll review your responses and get back to you soon.",
+        content: isTechnicalRoundRef.current
+          ? "Excellent! You've completed both DSA coding problems. We'll review your solutions and get back to you soon. Thank you!"
+          : "Thank you for completing the interview! We'll review your responses and get back to you soon.",
         timestamp: new Date()
       };
       
@@ -975,16 +1117,40 @@ export default function InterviewSession() {
     
     const nextQuestion = latestQuestions[nextIndex];
     
+    // Reset per-question timer for technical round
+    if (isTechnicalRoundRef.current) {
+      const perQSeconds = perQuestionTimeMinutes * 60;
+      setQuestionSecondsLeft(perQSeconds);
+      questionSecondsLeftRef.current = perQSeconds;
+    }
+    
     // Add brief acknowledgment
-    const acknowledgments = [
-      "Thank you for sharing.",
-      "I appreciate your response.",
-      "That's interesting.",
-      "Good to know.",
-      "Understood."
-    ];
+    const acknowledgments = isTechnicalRoundRef.current
+      ? ["Great effort on that one!", "Nice work!", "Good attempt!"]
+      : [
+          "Thank you for sharing.",
+          "I appreciate your response.",
+          "That's interesting.",
+          "Good to know.",
+          "Understood."
+        ];
     
     const randomAcknowledgment = acknowledgments[Math.floor(Math.random() * acknowledgments.length)];
+    
+    // Clear code editor for next question in technical round
+    if (isTechnicalRoundRef.current) {
+      setUserCode('');
+      // Focus editor after a small delay to allow for transition
+      setTimeout(() => {
+        editorRef.current?.focus();
+      }, 500);
+    }
+    
+    // Build question intro for technical round
+    const difficultyLabel = nextQuestion.difficulty ? ` [${nextQuestion.difficulty}]` : '';
+    const questionPrefix = isTechnicalRoundRef.current
+      ? `Moving to Question ${nextQuestion.id}${difficultyLabel}:\n\n`
+      : '';
     
     const ackMessage: Message = {
       id: Date.now().toString(),
@@ -1000,17 +1166,23 @@ export default function InterviewSession() {
       const questionMessage: Message = {
         id: Date.now().toString(),
         role: 'ai',
-        content: nextQuestion.question,
+        content: `${questionPrefix}${nextQuestion.question}`,
         timestamp: new Date()
       };
       
       setMessages(prev => [...prev, questionMessage]);
-      speakWithMurf(`${randomAcknowledgment} ${nextQuestion.question}`);
+      speakWithMurf(`${randomAcknowledgment} ${questionPrefix}${nextQuestion.question}`);
     }, 2000);
   };
 
   // Handle user message - auto-send when speaking is detected
   const handleUserMessage = async (text: string) => {
+    // In technical round, we ignore voice transcripts
+    if (isTechnicalRoundRef.current) {
+      console.log('Voice transcript ignored in technical round');
+      return;
+    }
+
     if (!text.trim() || text.length < MIN_VOICE_RESPONSE_CHARS) {
       console.log('Response too short, ignoring:', text.length, 'chars');
       return;
@@ -1080,10 +1252,67 @@ export default function InterviewSession() {
   });
 
   // Send message manually
-  const sendMessage = () => {
-    if (inputMessage.trim()) {
-      handleUserMessage(inputMessage);
+  const sendMessage = async () => {
+    const textToSend = isTechnicalRound ? userCode : inputMessage;
+    
+    if (!textToSend.trim()) return;
+
+    console.log('Sending manual message:', isTechnicalRound ? 'Code Submission' : textToSend.substring(0, 50) + '...');
+
+    const userMessage: Message = {
+      id: Date.now().toString(),
+      role: 'user',
+      content: textToSend,
+      timestamp: new Date()
+    };
+
+    setMessages(prev => [...prev, userMessage]);
+    
+    // Completely clear input state
+    if (isTechnicalRound) {
+      setUserCode('');
+    } else {
+      setInputMessage('');
+      liveSpeechTextRef.current = '';
+      lastFallbackTranscriptRef.current = '';
     }
+    
+    // Save response to database
+    try {
+      const currentQIndex = currentQuestionIndexRef.current;
+      const latestQuestions = interviewQuestionsRef.current;
+      const currentQuestion = latestQuestions[currentQIndex];
+      
+      if (!currentQuestion) {
+        console.warn('No current question found in ref for index:', currentQIndex);
+        setTimeout(() => askNextQuestion(), 2000);
+        return;
+      }
+      
+      console.log('Saving response for question', currentQIndex, currentQuestion.category);
+      
+      const response = await fetch(`/api/interview/${interviewId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          interviewId,
+          questionNumber: currentQuestion.id,
+          question: currentQuestion.question,
+          category: currentQuestion.category,
+          userResponse: textToSend,
+        }),
+      });
+      
+      if (!response.ok) {
+        console.warn('Failed to save response:', response.status, response.statusText);
+      }
+    } catch (error) {
+      console.error('Error saving response:', error);
+    }
+    
+    // Wait a moment, then ask next question
+    console.log('Scheduling next question in 2 seconds...');
+    setTimeout(() => askNextQuestion(), 2000);
   };
 
   // Emergency fallback: re-arm browser speech recognition with explicit user gesture.
@@ -1135,6 +1364,10 @@ export default function InterviewSession() {
 
   // End call
   const endCall = async () => {
+    // Stop technical round timers
+    if (questionTimerRef.current) clearInterval(questionTimerRef.current);
+    if (overallTimerRef.current) clearInterval(overallTimerRef.current);
+    
     // Check if interview is incomplete
     const answeredCount = askedQuestionsRef.current.size;
     const totalQuestions = interviewQuestions.length;
@@ -1353,51 +1586,180 @@ export default function InterviewSession() {
             </div>
           </div>
           
-          <Badge variant="outline" className="border-green-500/50 text-green-400">
-            <div className="h-2 w-2 rounded-full bg-green-400 mr-2 animate-pulse" />
-            Live
-          </Badge>
+          {/* Technical Round Timers */}
+          {isTechnicalRound && (
+            <div className="flex items-center gap-3">
+              {/* Per-Question Timer */}
+              {questionSecondsLeft !== null && (
+                <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border ${
+                  questionSecondsLeft <= 60 
+                    ? 'bg-red-950/80 border-red-500/70 text-red-300' 
+                    : questionSecondsLeft <= 300 
+                      ? 'bg-yellow-950/80 border-yellow-500/50 text-yellow-300'
+                      : 'bg-gray-800/80 border-gray-600 text-gray-200'
+                }`}>
+                  <Clock className={`h-3.5 w-3.5 ${questionSecondsLeft <= 60 ? 'animate-pulse' : ''}`} />
+                  <div className="text-xs">
+                    <span className="opacity-70">Q{currentQuestionIndex + 1}: </span>
+                    <span className="font-mono font-bold">
+                      {String(Math.floor(questionSecondsLeft / 60)).padStart(2, '0')}:
+                      {String(questionSecondsLeft % 60).padStart(2, '0')}
+                    </span>
+                  </div>
+                  {questionSecondsLeft <= 300 && questionSecondsLeft > 60 && (
+                    <AlertTriangle className="h-3 w-3 text-yellow-400" />
+                  )}
+                </div>
+              )}
+              
+              {/* Overall Timer */}
+              {overallSecondsLeft !== null && (
+                <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border ${
+                  overallSecondsLeft <= 120
+                    ? 'bg-red-950/80 border-red-500/70 text-red-300'
+                    : overallSecondsLeft <= 600
+                      ? 'bg-yellow-950/80 border-yellow-500/50 text-yellow-300'
+                      : 'bg-blue-950/60 border-blue-500/30 text-blue-200'
+                }`}>
+                  <Clock className={`h-3.5 w-3.5 ${overallSecondsLeft <= 120 ? 'animate-pulse' : ''}`} />
+                  <div className="text-xs">
+                    <span className="opacity-70">Total: </span>
+                    <span className="font-mono font-bold">
+                      {String(Math.floor(overallSecondsLeft / 60)).padStart(2, '0')}:
+                      {String(overallSecondsLeft % 60).padStart(2, '0')}
+                    </span>
+                  </div>
+                </div>
+              )}
+              
+              {/* Question difficulty badge */}
+              {interviewQuestions[currentQuestionIndex]?.difficulty && (
+                <Badge className={`text-xs ${
+                  interviewQuestions[currentQuestionIndex].difficulty === 'Hard'
+                    ? 'bg-red-600/80 text-white'
+                    : 'bg-yellow-600/80 text-white'
+                }`}>
+                  {interviewQuestions[currentQuestionIndex].difficulty}
+                </Badge>
+              )}
+            </div>
+          )}
+          
+          {!isTechnicalRound && (
+            <Badge variant="outline" className="border-green-500/50 text-green-400">
+              <div className="h-2 w-2 rounded-full bg-green-400 mr-2 animate-pulse" />
+              Live
+            </Badge>
+          )}
+          
+          {isTechnicalRound && (
+            <Badge variant="outline" className="border-purple-500/50 text-purple-400">
+              <div className="h-2 w-2 rounded-full bg-purple-400 mr-2 animate-pulse" />
+              Technical Round
+            </Badge>
+          )}
         </div>
       </header>
 
       {/* Main Content - Video Call Layout */}
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-3 gap-4 p-4 overflow-hidden">
-        {/* Left Side - Video Feed */}
-        <div className="lg:col-span-2 flex flex-col gap-4">
-          {/* Webcam Feed */}
-          <Card className="flex-1 border-gray-700 bg-gray-900 relative overflow-hidden">
-            {isCameraOn ? (
-              <video
-                ref={videoRef}
-                autoPlay
-                playsInline
-                muted
-                className="w-full h-full object-cover"
-              />
-            ) : (
-              <div className="w-full h-full flex items-center justify-center bg-gray-800">
-                <User className="h-24 w-24 text-gray-600" />
-              </div>
-            )}
-            
-            {/* AI Speaking Animation Overlay */}
-            {isAISpeaking && (
-              <div className="absolute bottom-4 left-4 flex items-center gap-2 bg-gray-950/80 backdrop-blur-sm rounded-lg px-3 py-2">
-                <div className="flex gap-1">
-                  <div className="w-1 h-4 bg-blue-500 rounded-full animate-pulse" style={{ animationDelay: '0ms' }} />
-                  <div className="w-1 h-6 bg-blue-500 rounded-full animate-pulse" style={{ animationDelay: '150ms' }} />
-                  <div className="w-1 h-3 bg-blue-500 rounded-full animate-pulse" style={{ animationDelay: '300ms' }} />
-                  <div className="w-1 h-5 bg-blue-500 rounded-full animate-pulse" style={{ animationDelay: '450ms' }} />
+        {/* Left Side - Problem Statement & Code Editor */}
+        <div className="lg:col-span-2 flex flex-col gap-4 overflow-hidden">
+          {isTechnicalRound ? (
+            /* Code Editor Layout - Full Height */
+            <Card className="flex-1 border-gray-700 bg-[#1e1e1e] flex flex-col overflow-hidden shadow-2xl relative">
+              <div className="bg-[#2d2d2d] border-b border-gray-700 px-4 py-2 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="flex gap-1.5 mr-2">
+                    <div className="w-3 h-3 rounded-full bg-red-500/80" />
+                    <div className="w-3 h-3 rounded-full bg-yellow-500/80" />
+                    <div className="w-3 h-3 rounded-full bg-green-500/80" />
+                  </div>
+                  <Code2 className="h-4 w-4 text-gray-400" />
+                  <span className="text-xs font-mono text-gray-300">solution.js</span>
                 </div>
-                <span className="text-xs text-white">AI is speaking...</span>
               </div>
-            )}
-            
-            {/* User Name Tag */}
-            <div className="absolute top-4 left-4 bg-gray-950/80 backdrop-blur-sm rounded-lg px-3 py-1.5">
-              <span className="text-xs text-white">{userName}</span>
-            </div>
-          </Card>
+              <div className="flex-1 relative flex overflow-hidden">
+                {/* Line Numbers */}
+                <div className="w-12 bg-[#1e1e1e] border-r border-gray-800 pt-4 flex flex-col items-center select-none opacity-30 font-mono text-[13px] leading-6 text-gray-400 shrink-0">
+                  {Array.from({ length: 100 }).map((_, i) => (
+                    <div key={i}>{i + 1}</div>
+                  ))}
+                </div>
+                {/* Editor Textarea */}
+                <textarea
+                  ref={editorRef}
+                  value={userCode}
+                  onChange={(e) => setUserCode(e.target.value)}
+                  spellCheck={false}
+                  autoFocus
+                  placeholder="// Write your solution here..."
+                  className="flex-1 bg-transparent p-4 font-mono text-[14px] leading-6 text-gray-300 outline-none resize-none placeholder:text-gray-600 z-0"
+                  style={{ tabSize: 2 }}
+                />
+                
+                {/* AI Speaking Animation Overlay */}
+                {isAISpeaking && (
+                  <div className="absolute top-4 right-4 flex items-center gap-2 bg-gray-950/80 backdrop-blur-sm rounded-lg px-3 py-2 z-10 border border-blue-500/30">
+                    <div className="flex gap-1">
+                      <div className="w-1 h-3 bg-blue-500 rounded-full animate-pulse" />
+                      <div className="w-1 h-4 bg-blue-500 rounded-full animate-pulse" style={{ animationDelay: '150ms' }} />
+                      <div className="w-1 h-2 bg-blue-500 rounded-full animate-pulse" style={{ animationDelay: '300ms' }} />
+                    </div>
+                    <span className="text-[10px] text-white">AI is reading...</span>
+                  </div>
+                )}
+              </div>
+              <div className="bg-[#1e1e1e] border-t border-gray-800 p-3 flex justify-end gap-3">
+                <div className="flex-1 flex items-center px-3">
+                  <span className="text-[10px] text-gray-500 font-mono">JavaScript (Node.js)</span>
+                </div>
+                <Button 
+                  onClick={sendMessage}
+                  disabled={!userCode.trim()}
+                  className="bg-blue-600 hover:bg-blue-700 text-white gap-2 shadow-lg shadow-blue-900/20"
+                >
+                  <Send className="h-4 w-4" />
+                  Submit Solution
+                </Button>
+              </div>
+            </Card>
+          ) : (
+            /* Webcam Feed */
+            <Card className="flex-1 border-gray-700 bg-gray-900 relative overflow-hidden">
+              {isCameraOn ? (
+                <video
+                  ref={videoRef}
+                  autoPlay
+                  playsInline
+                  muted
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center bg-gray-800">
+                  <User className="h-24 w-24 text-gray-600" />
+                </div>
+              )}
+              
+              {/* AI Speaking Animation Overlay */}
+              {isAISpeaking && (
+                <div className="absolute bottom-4 left-4 flex items-center gap-2 bg-gray-950/80 backdrop-blur-sm rounded-lg px-3 py-2">
+                  <div className="flex gap-1">
+                    <div className="w-1 h-4 bg-blue-500 rounded-full animate-pulse" style={{ animationDelay: '0ms' }} />
+                    <div className="w-1 h-6 bg-blue-500 rounded-full animate-pulse" style={{ animationDelay: '150ms' }} />
+                    <div className="w-1 h-3 bg-blue-500 rounded-full animate-pulse" style={{ animationDelay: '300ms' }} />
+                    <div className="w-1 h-5 bg-blue-500 rounded-full animate-pulse" style={{ animationDelay: '450ms' }} />
+                  </div>
+                  <span className="text-xs text-white">AI is speaking...</span>
+                </div>
+              )}
+              
+              {/* User Name Tag */}
+              <div className="absolute top-4 left-4 bg-gray-950/80 backdrop-blur-sm rounded-lg px-3 py-1.5">
+                <span className="text-xs text-white">{userName}</span>
+              </div>
+            </Card>
+          )}
           
           {/* Call Controls */}
           <Card className="border-gray-700 bg-gray-900 p-4">
@@ -1440,50 +1802,106 @@ export default function InterviewSession() {
           </Card>
         </div>
 
-        {/* Right Side - Chat Area */}
-        <Card className="border-gray-700 bg-gray-900 flex flex-col">
-          <div className="border-b border-gray-800 p-4">
-            <h2 className="text-sm font-semibold text-white">Interview Chat</h2>
-            <p className="text-xs text-gray-400">Real-time transcription</p>
-          </div>
-          
-          <ScrollArea className="flex-1 p-4">
-            <div className="space-y-4">
-              {messages.map((message) => (
-                <div
-                  key={message.id}
-                  className={`flex gap-3 ${message.role === 'user' ? 'flex-row-reverse' : ''}`}
-                >
-                  <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${
-                    message.role === 'ai' 
-                      ? 'bg-gradient-to-br from-blue-600 to-purple-600' 
-                      : 'bg-gray-700'
+        {/* Right Side - Question or Chat */}
+        <div className="lg:col-span-1 flex flex-col h-full overflow-hidden">
+          {isTechnicalRound ? (
+            /* Technical Round Question Panel */
+            <Card className="flex-1 border-gray-700 bg-gray-900 flex flex-col overflow-hidden">
+            <div className="border-b border-gray-800 bg-gray-800/50 p-4 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <BookOpen className="h-4 w-4 text-blue-400" />
+                <h2 className="text-sm font-semibold text-white">Problem Statement</h2>
+              </div>
+              <Badge className="bg-blue-600/20 text-blue-400 border-blue-500/30">
+                Q{currentQuestionIndex + 1}
+              </Badge>
+            </div>
+            
+            <ScrollArea className="flex-1 p-5">
+              <div className="space-y-6">
+                <div className="flex items-center gap-2">
+                  <Badge variant="outline" className={`${
+                    interviewQuestions[currentQuestionIndex]?.difficulty === 'Hard' 
+                      ? 'border-red-500/50 text-red-400' 
+                      : 'border-yellow-500/50 text-yellow-400'
                   }`}>
-                    {message.role === 'ai' ? (
-                      <Bot className="h-4 w-4 text-white" />
-                    ) : (
-                      <User className="h-4 w-4 text-white" />
-                    )}
-                  </div>
-                  
-                  <div className={`max-w-[80%] rounded-lg p-3 ${
-                    message.role === 'ai'
-                      ? 'bg-gray-800 text-gray-200'
-                      : 'bg-blue-600 text-white'
-                  }`}>
-                    <p className="text-sm">{message.content}</p>
-                    <p className="text-[10px] opacity-60 mt-1">
-                      {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    {interviewQuestions[currentQuestionIndex]?.difficulty || 'Medium'}
+                  </Badge>
+                  <span className="text-[10px] text-gray-500 uppercase tracking-widest font-mono">Difficulty</span>
+                </div>
+
+                <div className="prose prose-invert max-w-none">
+                  <p className="text-gray-100 whitespace-pre-wrap leading-relaxed font-medium text-[17px] tracking-tight">
+                    {interviewQuestions[currentQuestionIndex]?.question}
+                  </p>
+                </div>
+
+                {/* Additional instructions if any */}
+                <div className="pt-6 border-t border-gray-800">
+                  <div className="bg-blue-900/10 border border-blue-900/30 rounded-lg p-3">
+                    <p className="text-[11px] text-blue-300/80 leading-relaxed italic">
+                      "Type your solution in the code editor on the left. Click 'Submit Solution' when you're finished. You have 30 minutes for this problem."
                     </p>
                   </div>
                 </div>
-              ))}
-              <div ref={messagesEndRef} />
+              </div>
+            </ScrollArea>
+            
+            <div className="p-4 border-t border-gray-800 bg-gray-900/50">
+              <div className="flex items-center justify-center gap-2">
+                <div className="h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse" />
+                <span className="text-[10px] text-gray-400 uppercase tracking-widest font-bold">Interview Live</span>
+              </div>
             </div>
-          </ScrollArea>
-          
-          {/* Message Input - Voice Only */}
-          <div className="border-t border-gray-800 p-4">
+            </Card>
+          ) : (
+            /* Standard Interview Chat Area */
+            <Card className="flex-1 border-gray-700 bg-gray-900 flex flex-col overflow-hidden">
+            <div className="border-b border-gray-800 p-4">
+              <h2 className="text-sm font-semibold text-white">Interview Chat</h2>
+              <p className="text-xs text-gray-400">Real-time transcription</p>
+            </div>
+            
+            <ScrollArea className="flex-1 p-4">
+              <div className="space-y-4">
+                {messages.map((message) => (
+                  <div
+                    key={message.id}
+                    className={`flex gap-3 ${message.role === 'user' ? 'flex-row-reverse' : ''}`}
+                  >
+                    <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${
+                      message.role === 'ai' 
+                        ? 'bg-gradient-to-br from-blue-600 to-purple-600' 
+                        : 'bg-gray-700'
+                    }`}>
+                      {message.role === 'ai' ? (
+                        <Bot className="h-4 w-4 text-white" />
+                      ) : (
+                        <User className="h-4 w-4 text-white" />
+                      )}
+                    </div>
+                    
+                    <div className={`max-w-[90%] rounded-lg p-3 ${
+                      message.role === 'ai'
+                        ? 'bg-gray-800 text-gray-200'
+                        : 'bg-blue-600 text-white'
+                    }`}>
+                      <p className="text-sm whitespace-pre-wrap break-words leading-relaxed">{message.content}</p>
+                      <p className="text-[10px] opacity-60 mt-1">
+                        {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+                <div ref={messagesEndRef} />
+              </div>
+            </ScrollArea>
+          </Card>
+        )}
+
+        {/* Message Input - Only show in non-technical rounds to save space */}
+        {!isTechnicalRound && (
+          <div className="mt-4 border-t border-gray-800 p-4 bg-gray-900 rounded-lg border border-gray-700">
             {/* Voice response indicator */}
             {!isAISpeaking && messages.length > 0 && messages[messages.length - 1].role === 'ai' && (
               <div className="mb-3 space-y-2">
@@ -1573,7 +1991,8 @@ export default function InterviewSession() {
               </div>
             </div>
           </div>
-        </Card>
+        )}
+        </div>
       </div>
     </div>
   );

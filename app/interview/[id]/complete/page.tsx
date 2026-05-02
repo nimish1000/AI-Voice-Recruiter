@@ -13,6 +13,7 @@ interface InterviewData {
   duration: number;
   candidateName: string;
   status: string;
+  interviewType: string;
 }
 
 export default function InterviewCompletePage() {
@@ -32,12 +33,16 @@ export default function InterviewCompletePage() {
           const data = await response.json();
           // Calculate questions answered from responses
           const questionsAnswered = data.responses?.length || 0;
+          const interviewType = data.interview?.interviewType || 'Screening';
+          const isTechnicalRound = interviewType === 'Tech Interview';
+          
           setInterviewData({
             questionsAnswered,
-            totalQuestions: 8,
+            totalQuestions: isTechnicalRound ? 2 : 8,
             duration: data.interview?.duration || 0,
             candidateName: data.interview?.candidateName || 'Candidate',
             status: data.interview?.status || 'completed',
+            interviewType,
           });
         }
       } catch (error) {

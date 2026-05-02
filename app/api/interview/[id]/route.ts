@@ -53,11 +53,15 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
           })
         : null;
 
+      const interviewType = interview.interviewType || 'Screening';
+      const isTechnicalRound = interviewType === 'Tech Interview';
+
       // Generate job-specific questions
       const generatedQuestions = await generateInterviewQuestions(
         job?.title || 'General Position',
         job?.description || 'General professional interview',
-        settings
+        settings,
+        isTechnicalRound
       );
       
       return NextResponse.json({
@@ -65,6 +69,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         interview: interview,
         job: job ? { title: job.title, description: job.description } : null,
         questions: generatedQuestions,
+        interviewType,
+        isTechnicalRound,
+        totalTimeMinutes: isTechnicalRound ? 60 : null,
+        perQuestionTimeMinutes: isTechnicalRound ? 30 : null,
         settings: settings ? {
           agentName: settings.agentName,
           voiceId: settings.voiceId
@@ -176,6 +184,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
         startedAt: interview.startedAt,
         completedAt: interview.completedAt,
         duration: interview.duration || duration,
+        interviewType: interview.interviewType,
       },
       job: job ? { title: job.title, description: job.description } : null,
       responses,
@@ -491,30 +500,61 @@ function calculateSimilarity(text1: string, text2: string): number {
 }
 
 // Generate job-specific interview questions using Groq AI
-async function generateInterviewQuestions(jobTitle: string, jobDescription: string, settings: any = null) {
+async function generateInterviewQuestions(jobTitle: string, jobDescription: string, settings: any = null, isTechnicalRound: boolean = false) {
   try {
-    const questionCount = settings?.questionCount || 8;
+    // Technical round: exactly 2 practical DSA questions
+    const questionCount = isTechnicalRound ? 2 : (settings?.questionCount || 8);
     
     if (!process.env.GROQ_API_KEY) {
       console.warn('⚠️ GROQ_API_KEY not found, using fallback questions');
-      return getFallbackQuestions(jobTitle, questionCount);
+      return isTechnicalRound ? getTechnicalRoundFallbackQuestions() : getFallbackQuestions(jobTitle, questionCount);
     }
 
-    let promptContent = settings?.systemPrompt;
+    let promptContent = '';
     const agentName = settings?.agentName || 'AI Recruiter';
     const companyName = settings?.companyName || 'AI Recruitment Platform';
     const companyDescription = settings?.companyDescription || 'General professional interview';
-    
-    if (!promptContent) {
+
+    if (isTechnicalRound) {
+      // ======= TECHNICAL ROUND: 2 Practical DSA Questions =======
+      promptContent = `You are an expert technical interviewer named ${agentName} at ${companyName} conducting a TECHNICAL CODING ROUND.
+
+About ${companyName}:
+${companyDescription}
+
+The candidate is applying for: "${jobTitle}"
+Job Description: ${jobDescription}
+
+You MUST generate EXACTLY 2 practical Data Structures and Algorithms (DSA) coding questions.
+
+Rules:
+- Return ONLY a valid JSON array of exactly 2 objects.
+- Each object must have: "id" (number), "question" (string), "category" (string), "difficulty" (string: "Medium" or "Hard"), and "timeLimit" (number: 30).
+- Question 1 (id: 1): A MEDIUM difficulty DSA problem. This should be a practical coding problem similar to LeetCode Medium level. Include a clear problem statement with input/output examples. Topics can include: Arrays, Strings, HashMaps, Linked Lists, Stacks, Queues, Binary Search, Two Pointers, Sliding Window, etc.
+- Question 2 (id: 2): A HARD difficulty DSA problem. This should be a practical coding problem similar to LeetCode Hard level. Include a clear problem statement with input/output examples. Topics can include: Dynamic Programming, Graphs (BFS/DFS), Trees, Tries, Heaps, Greedy Algorithms, Backtracking, etc.
+- Each question MUST have a concrete problem statement (not vague). For example: "Given an array of integers, find..." or "Design a data structure that supports..."
+- Include at least one input/output example in each question.
+- The candidate has 30 minutes per question (60 minutes total).
+- Category should be "DSA - Medium" or "DSA - Hard".
+
+Example format:
+[
+  { "id": 1, "question": "Given an array of integers nums and a target integer target, return the indices of the two numbers such that they add up to target.\n\nExample:\nInput: nums = [2, 7, 11, 15], target = 9\nOutput: [0, 1]\nExplanation: nums[0] + nums[1] = 2 + 7 = 9\n\nConstraints:\n- 2 <= nums.length <= 10^4\n- Each input has exactly one solution.", "category": "DSA - Medium", "difficulty": "Medium", "timeLimit": 30 },
+  { "id": 2, "question": "...", "category": "DSA - Hard", "difficulty": "Hard", "timeLimit": 30 }
+]
+
+Return ONLY the JSON array. No conversational text. Make the questions unique, practical, and challenging.`;
+    } else if (!settings?.systemPrompt) {
+      // ======= STANDARD INTERVIEW ROUND =======
       promptContent = `You are an expert technical recruiter and interviewer named ${agentName} at ${companyName}. 
     
     About ${companyName}:
     ${companyDescription}
 
-    Generate [COUNT] interview questions for a candidate applying for the position of "[TITLE]".
+    Generate ${questionCount} interview questions for a candidate applying for the position of "${jobTitle}".
     
     Job Description context:
-    [DESCRIPTION]
+    ${jobDescription}
     
     Requirements:
     - Return ONLY a valid JSON array of objects.
@@ -530,9 +570,20 @@ async function generateInterviewQuestions(jobTitle: string, jobDescription: stri
     ]
     
     Return ONLY the JSON. No conversational text.`;
+
+      // Force DSA requirement for engineering roles using code logic
+      const isEngineering = jobTitle.toLowerCase().includes('software') || 
+                            jobTitle.toLowerCase().includes('developer') || 
+                            jobTitle.toLowerCase().includes('engineer') ||
+                            jobTitle.toLowerCase().includes('stack') ||
+                            jobTitle.toLowerCase().includes('coder');
+                            
+      if (isEngineering) {
+        promptContent += `\n\nCRITICAL INSTRUCTION: YOU MUST explicitly make AT LEAST 3 to 4 of the technical questions focused purely on Data Structures and Algorithms (DSA) such as Arrays, HashMaps, Trees, Graphs, or Dynamic Programming. Do NOT ask only general web development questions. Ask specific coding/DSA problem-solving questions.`;
+      }
     } else {
       // Replace placeholders in custom prompt
-      promptContent = promptContent
+      promptContent = settings.systemPrompt
         .replace(/\[COUNT\]/g, questionCount.toString())
         .replace(/\[TITLE\]/g, jobTitle)
         .replace(/\[DESCRIPTION\]/g, jobDescription)
@@ -540,21 +591,10 @@ async function generateInterviewQuestions(jobTitle: string, jobDescription: stri
         .replace(/\[COMPANY_DESCRIPTION\]/g, companyDescription);
     }
 
-    // Force DSA requirement for engineering roles using code logic
-    const isEngineering = jobTitle.toLowerCase().includes('software') || 
-                          jobTitle.toLowerCase().includes('developer') || 
-                          jobTitle.toLowerCase().includes('engineer') ||
-                          jobTitle.toLowerCase().includes('stack') ||
-                          jobTitle.toLowerCase().includes('coder');
-                          
-    if (isEngineering) {
-      promptContent += `\n\nCRITICAL INSTRUCTION: YOU MUST explicitly make AT LEAST 3 to 4 of the technical questions focused purely on Data Structures and Algorithms (DSA) such as Arrays, HashMaps, Trees, Graphs, or Dynamic Programming. Do NOT ask only general web development questions. Ask specific coding/DSA problem-solving questions.`;
-    }
-
     const chatCompletion = await groq.chat.completions.create({
       messages: [{ role: 'user', content: promptContent }],
       model: 'llama-3.3-70b-versatile',
-      temperature: 0.2,
+      temperature: isTechnicalRound ? 0.4 : 0.2,
       response_format: { type: 'json_object' },
     });
 
@@ -582,15 +622,25 @@ async function generateInterviewQuestions(jobTitle: string, jobDescription: stri
 
     if (questions.length > 0) {
       console.log(`✅ Successfully generated ${questions.length} questions from Groq.`);
+      // For technical round, ensure we have exactly 2 and add timeLimit
+      if (isTechnicalRound) {
+        questions = questions.slice(0, 2).map((q: any, i: number) => ({
+          ...q,
+          id: i + 1,
+          difficulty: i === 0 ? 'Medium' : 'Hard',
+          timeLimit: 30,
+          category: i === 0 ? 'DSA - Medium' : 'DSA - Hard',
+        }));
+      }
       return questions.slice(0, questionCount);
     }
     
     console.warn('⚠️ Questions array empty, falling back.');
-    return getFallbackQuestions(jobTitle, questionCount);
+    return isTechnicalRound ? getTechnicalRoundFallbackQuestions() : getFallbackQuestions(jobTitle, questionCount);
     
   } catch (error) {
     console.error('Error generating AI questions:', error);
-    return getFallbackQuestions(jobTitle, 8); // default to 8 if error
+    return isTechnicalRound ? getTechnicalRoundFallbackQuestions() : getFallbackQuestions(jobTitle, 8);
   }
 }
 
@@ -607,4 +657,23 @@ function getFallbackQuestions(jobTitle: string, count: number = 8) {
   ];
 
   return base.slice(0, count).map((q, i) => ({ ...q, id: i + 1 }));
+}
+
+function getTechnicalRoundFallbackQuestions() {
+  return [
+    {
+      id: 1,
+      question: "Given an integer array nums, find the contiguous subarray (containing at least one number) which has the largest sum and return its sum.\n\nExample:\nInput: nums = [-2, 1, -3, 4, -1, 2, 1, -5, 4]\nOutput: 6\nExplanation: The subarray [4, -1, 2, 1] has the largest sum = 6.\n\nConstraints:\n- 1 <= nums.length <= 10^5\n- -10^4 <= nums[i] <= 10^4\n\nFollow up: Can you solve it using Kadane's Algorithm in O(n) time?",
+      category: "DSA - Medium",
+      difficulty: "Medium",
+      timeLimit: 30
+    },
+    {
+      id: 2,
+      question: "Given n non-negative integers representing an elevation map where the width of each bar is 1, compute how much water it can trap after raining.\n\nExample:\nInput: height = [0, 1, 0, 2, 1, 0, 1, 3, 2, 1, 2, 1]\nOutput: 6\nExplanation: 6 units of rain water are trapped between the bars.\n\nConstraints:\n- n == height.length\n- 1 <= n <= 2 * 10^4\n- 0 <= height[i] <= 10^5\n\nCan you solve it in O(n) time and O(1) space using two pointers?",
+      category: "DSA - Hard",
+      difficulty: "Hard",
+      timeLimit: 30
+    }
+  ];
 }

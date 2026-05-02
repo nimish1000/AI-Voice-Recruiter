@@ -43,14 +43,29 @@ export default function InterviewPage() {
         const data = await response.json();
         
         if (data.success && data.job) {
+          const interviewType = data.interview.interviewType || 'AI Assessment';
+          const isTechnicalRound = interviewType === 'Tech Interview';
+          
           setInterviewData(prev => ({
             ...prev,
             jobTitle: data.job.title,
-            description: data.job.description || prev.description,
+            description: isTechnicalRound 
+              ? 'This is a technical coding round. You will be given 2 practical DSA (Data Structures & Algorithms) problems — one Medium and one Hard level. You have 30 minutes per question (1 hour total). Ensure you have a quiet environment and are ready to think through coding problems.'
+              : data.job.description || prev.description,
             company: data.settings?.companyName || prev.company,
             companyDescription: data.settings?.companyDescription || prev.companyDescription,
             agentName: data.settings?.agentName || prev.agentName,
-            type: data.interview.interviewType || prev.type,
+            type: interviewType,
+            duration: isTechnicalRound ? '60 minutes' : prev.duration,
+            instructions: isTechnicalRound 
+              ? [
+                  'Find a quiet space — you\'ll need to focus on coding problems',
+                  'Ensure your microphone and camera are working',
+                  'You\'ll receive 2 DSA problems: 1 Medium + 1 Hard',
+                  '30 minutes per question (1 hour total)',
+                  'Explain your approach clearly — communication matters',
+                ]
+              : prev.instructions,
           }));
         }
       } catch (error) {
