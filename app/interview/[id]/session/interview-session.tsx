@@ -103,6 +103,8 @@ export default function InterviewSession() {
   const [isAISpeaking, setIsAISpeaking] = useState(false);
   const [userName, setUserName] = useState(userNameFromQuery);
   const [isListening, setIsListening] = useState(false);
+  const [isInterviewEnding, setIsInterviewEnding] = useState(false);
+  const isInterviewEndingRef = useRef(false);
   const lastSpeechTimeRef = useRef<number>(0);
   const autoSendTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const askedQuestionsRef = useRef<Set<number>>(new Set());
@@ -197,6 +199,10 @@ export default function InterviewSession() {
   useEffect(() => {
     overallSecondsLeftRef.current = overallSecondsLeft;
   }, [overallSecondsLeft]);
+
+  useEffect(() => {
+    isInterviewEndingRef.current = isInterviewEnding;
+  }, [isInterviewEnding]);
 
   // Cleanup timers on unmount
   useEffect(() => {
@@ -1032,6 +1038,8 @@ export default function InterviewSession() {
             if (next <= 0) {
               // Overall time up — end interview
               console.log('⏰ Overall timer expired! Ending interview...');
+              setIsInterviewEnding(true);
+              isInterviewEndingRef.current = true;
               if (questionTimerRef.current) clearInterval(questionTimerRef.current);
               if (overallTimerRef.current) clearInterval(overallTimerRef.current);
               const timeUpMsg: Message = {
@@ -1062,6 +1070,10 @@ export default function InterviewSession() {
 
   // Ask next question - ensures no repetition
   const askNextQuestion = () => {
+    if (isInterviewEndingRef.current) {
+      console.log('askNextQuestion called but interview is already ending');
+      return;
+    }
     const currentIndex = currentQuestionIndexRef.current;
     console.log('Current question index:', currentIndex);
     console.log('Asked questions:', Array.from(askedQuestionsRef.current));
@@ -1085,6 +1097,8 @@ export default function InterviewSession() {
     // If all questions asked or none found, complete interview
     if (nextIndex === -1) {
       console.log('All questions completed!');
+      setIsInterviewEnding(true);
+      isInterviewEndingRef.current = true;
       // Stop timers for technical round
       if (isTechnicalRoundRef.current) {
         if (questionTimerRef.current) clearInterval(questionTimerRef.current);
@@ -1183,6 +1197,11 @@ export default function InterviewSession() {
       return;
     }
 
+    if (isInterviewEndingRef.current) {
+      console.log('Interview is ending, ignoring voice message');
+      return;
+    }
+
     if (!text.trim() || text.length < MIN_VOICE_RESPONSE_CHARS) {
       console.log('Response too short, ignoring:', text.length, 'chars');
       return;
@@ -1256,6 +1275,11 @@ export default function InterviewSession() {
     const textToSend = isTechnicalRound ? userCode : inputMessage;
     
     if (!textToSend.trim()) return;
+
+    if (isInterviewEndingRef.current) {
+      console.log('Interview is ending, ignoring manual message');
+      return;
+    }
 
     console.log('Sending manual message:', isTechnicalRound ? 'Code Submission' : textToSend.substring(0, 50) + '...');
 
@@ -1364,6 +1388,8 @@ export default function InterviewSession() {
 
   // End call
   const endCall = async () => {
+    setIsInterviewEnding(true);
+    isInterviewEndingRef.current = true;
     // Stop technical round timers
     if (questionTimerRef.current) clearInterval(questionTimerRef.current);
     if (overallTimerRef.current) clearInterval(overallTimerRef.current);
