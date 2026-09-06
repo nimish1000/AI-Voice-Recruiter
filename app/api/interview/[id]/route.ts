@@ -593,7 +593,7 @@ Return ONLY the JSON array. No conversational text. Make the questions unique, p
 
     const chatCompletion = await groq.chat.completions.create({
       messages: [{ role: 'user', content: promptContent }],
-      model: 'llama-3.3-70b-versatile',
+      model: 'openai/gpt-oss-120b',
       temperature: isTechnicalRound ? 0.4 : 0.2,
       response_format: { type: 'json_object' },
     });

@@ -57,7 +57,7 @@ Return ONLY valid JSON, no markdown formatting or explanation.
 
     const chatCompletion = await groq.chat.completions.create({
       messages: [{ role: 'user', content: prompt }],
-      model: 'llama-3.3-70b-versatile',
+      model: 'openai/gpt-oss-120b',
       temperature: 0.7,
     });
     
