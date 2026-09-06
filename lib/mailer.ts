@@ -12,16 +12,18 @@ export async function sendEmail({ to, subject, html }: SendMailParams): Promise<
   if (process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD) {
     try {
       const transporter = nodemailer.createTransport({
-        service: 'gmail',
+        host: 'smtp.gmail.com',
+        port: 465,
+        secure: true,
         auth: {
-          user: process.env.GMAIL_USER,
-          pass: process.env.GMAIL_APP_PASSWORD.replace(/\s+/g, ''), // remove spaces in app password
+          user: process.env.GMAIL_USER.trim(),
+          pass: process.env.GMAIL_APP_PASSWORD.replace(/\s+/g, '').trim(),
         },
       });
 
       const info = await transporter.sendMail({
-        from: `"AI Recruiter" <${process.env.GMAIL_USER}>`,
-        to,
+        from: `"AI Recruiter" <${process.env.GMAIL_USER.trim()}>`,
+        to: to.trim(),
         subject,
         html,
       });
