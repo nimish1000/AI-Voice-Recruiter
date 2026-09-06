@@ -1,8 +1,6 @@
 import { db, interviews } from './db';
 import crypto from 'crypto';
-import { Resend } from 'resend';
-
-const resend = new Resend(process.env.RESEND_API_KEY);
+import { sendEmail } from './mailer';
 
 interface InviteOptions {
   jobId: string;
@@ -41,11 +39,10 @@ export async function automateInterviewInvite({
 
     const interviewLink = `${baseUrl}/interview/${interviewId}`;
 
-    // 3. Send email via Resend
+    // 3. Send email invite (via Gmail SMTP if configured, or Resend)
     console.log(`📧 Automatically sending interview invite to: ${candidateEmail}`);
     
-    const { error: resendError } = await resend.emails.send({
-      from: 'Nimish <onboarding@resend.dev>',
+    const emailResult = await sendEmail({
       to: candidateEmail,
       subject: `Interview Invitation: ${interviewType} for Job Opportunity`,
       html: `
@@ -73,9 +70,9 @@ export async function automateInterviewInvite({
       `,
     });
 
-    if (resendError) {
-      console.error(`❌ Automation failed to deliver email to ${candidateEmail}:`, resendError.message);
-      return { success: false, error: resendError.message };
+    if (!emailResult.success) {
+      console.error(`❌ Automation failed to deliver email to ${candidateEmail}:`, emailResult.error);
+      return { success: false, error: emailResult.error };
     }
 
     console.log(`✅ Automated invite successfully dispatched to ${candidateEmail}`);

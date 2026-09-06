@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Plus, Grid3x3, List, Briefcase, MapPin, Calendar, Trash2, Eye, Sparkles, Search, X } from 'lucide-react';
+import { Plus, Grid3x3, List, Briefcase, MapPin, Calendar, Trash2, Eye, Sparkles, Search, X, CheckCircle2, AlertCircle, Mail, Send, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -614,30 +614,35 @@ export default function JobsPage() {
         {/* Candidate Matches Modal */}
         {showMatches && selectedJob && (
           <div
-            className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4"
+            className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4 sm:p-6 animate-in fade-in duration-200"
             onClick={() => setShowMatches(false)}
           >
             <div
-              className="bg-gray-900 border border-gray-700 rounded-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto"
+              className="bg-gray-900 border border-gray-800 rounded-2xl max-w-4xl w-full max-h-[88vh] flex flex-col shadow-2xl overflow-hidden"
               onClick={(e) => e.stopPropagation()}
             >
-              {/* Header */}
-              <div className="flex items-center justify-between p-6 border-b border-gray-700 sticky top-0 bg-gray-900 z-10">
-                <div>
-                  <h2 className="text-2xl font-bold text-white">
-                    {matchDialogStep === 'matches' && 'AI Candidate Matches'}
-                    {matchDialogStep === 'invite' && 'Setup Interview Invites'}
-                    {matchDialogStep === 'success' && 'Invites Sent'}
-                  </h2>
-                  <p className="text-gray-400 text-sm mt-1">
-                    Job: <span className="text-blue-400">{selectedJob.title}</span>
-                  </p>
+              {/* Modal Header */}
+              <div className="flex items-center justify-between px-6 py-4 border-b border-gray-800 bg-gray-900/90 backdrop-blur-md shrink-0">
+                <div className="flex items-center gap-3">
+                  <div className="h-10 w-10 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400 shrink-0">
+                    <Sparkles className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-bold text-white tracking-tight flex items-center gap-2">
+                      {matchDialogStep === 'matches' && 'AI Candidate Matches'}
+                      {matchDialogStep === 'invite' && 'Setup Interview Invites'}
+                      {matchDialogStep === 'success' && 'Invites Successfully Sent'}
+                    </h2>
+                    <p className="text-gray-400 text-xs mt-0.5 flex items-center gap-1.5">
+                      Target Job: <span className="font-medium text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded border border-blue-500/20">{selectedJob.title}</span>
+                    </p>
+                  </div>
                 </div>
                 <Button
                   variant="ghost"
                   size="sm"
                   onClick={() => setShowMatches(false)}
-                  className="text-gray-400 hover:text-white hover:bg-gray-800"
+                  className="text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg h-9 w-9 p-0"
                 >
                   <X className="h-5 w-5" />
                 </Button>
@@ -645,132 +650,188 @@ export default function JobsPage() {
 
               {/* Step 1: Matches List */}
               {matchDialogStep === 'matches' && (
-                <div className="p-6 space-y-4">
-                  <div className="flex justify-between items-center mb-4">
-                    <div className="flex items-center gap-2">
+                <div className="flex flex-col flex-1 overflow-hidden">
+                  {/* Action Toolbar */}
+                  <div className="px-6 py-3 border-b border-gray-800/80 bg-gray-900/50 flex justify-between items-center shrink-0">
+                    <div className="flex items-center gap-2.5">
                       <input 
                         type="checkbox" 
                         id="selectAll"
-                        className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-blue-600 focus:ring-blue-600 focus:ring-offset-gray-900 cursor-pointer"
+                        className="w-4 h-4 rounded border-gray-600 bg-gray-800 text-blue-600 focus:ring-blue-500 cursor-pointer accent-blue-600"
                         checked={matches.length > 0 && selectedCandidates.length === matches.length}
                         onChange={toggleSelectAll}
                       />
-                      <label htmlFor="selectAll" className="text-sm font-medium text-gray-300 cursor-pointer">
-                        Select All
+                      <label htmlFor="selectAll" className="text-xs font-semibold text-gray-300 cursor-pointer select-none">
+                        Select All ({matches.length})
                       </label>
+                      {selectedCandidates.length > 0 && (
+                        <span className="text-[11px] bg-blue-500/10 text-blue-400 border border-blue-500/20 px-2 py-0.5 rounded-full font-medium">
+                          {selectedCandidates.length} Selected
+                        </span>
+                      )}
                     </div>
                     
                     <Button 
                       onClick={() => setMatchDialogStep('invite')}
                       disabled={selectedCandidates.length === 0}
-                      className="bg-blue-600 hover:bg-blue-700"
+                      className="bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium h-8 px-4 rounded-lg shadow-sm disabled:opacity-40"
                     >
+                      <Send className="w-3.5 h-3.5 mr-1.5" />
                       Send Invites ({selectedCandidates.length})
                     </Button>
                   </div>
-                  
-                  {matches.length === 0 ? (
-                    <div className="text-center py-12">
-                      <Briefcase className="h-12 w-12 text-gray-600 mx-auto mb-4" />
-                      <h3 className="text-lg font-semibold text-white mb-2">
-                        No matches found
-                      </h3>
-                      <p className="text-gray-400">
-                        Try adding more candidates to your database
-                      </p>
-                    </div>
-                  ) : (
-                    matches.map((match, index) => (
-                      <Card 
-                        key={match.candidateId} 
-                        className={`border-gray-700 bg-gray-800/50 cursor-pointer transition-colors ${selectedCandidates.includes(match.candidateId) ? 'ring-2 ring-blue-500 bg-blue-900/20' : ''}`}
-                        onClick={() => toggleCandidateSelection(match.candidateId)}
-                      >
-                        <CardContent className="p-6">
-                          <div className="flex items-start gap-4">
-                            <div className="mt-1">
-                              <input 
-                                type="checkbox"
-                                className="w-5 h-5 rounded border-gray-600 bg-gray-700 text-blue-600 focus:ring-blue-600 focus:ring-offset-gray-900 cursor-pointer"
-                                checked={selectedCandidates.includes(match.candidateId)}
-                                onChange={() => toggleCandidateSelection(match.candidateId)}
-                                onClick={(e) => e.stopPropagation()}
-                              />
-                            </div>
-                            <div className="flex-1">
-                              <div className="flex flex-col sm:flex-row sm:items-start justify-between mb-2">
-                                <div className="flex-1">
-                                  <div className="flex items-center gap-3 mb-1">
-                                    <span className="text-lg font-semibold text-white">
-                                      #{index + 1} {match.name}
+
+                  {/* Scrollable Matches Body */}
+                  <div className="flex-1 overflow-y-auto p-6 space-y-4">
+                    {matches.length === 0 ? (
+                      <div className="text-center py-16">
+                        <Briefcase className="h-12 w-12 text-gray-600 mx-auto mb-3" />
+                        <h3 className="text-base font-semibold text-white mb-1">
+                          No matches found
+                        </h3>
+                        <p className="text-xs text-gray-400 max-w-sm mx-auto">
+                          Try adding more candidates or adjust the job description and requirements.
+                        </p>
+                      </div>
+                    ) : (
+                      matches.map((match, index) => {
+                        const isSelected = selectedCandidates.includes(match.candidateId);
+                        const isHigh = match.matchScore >= 80;
+                        const isMed = match.matchScore >= 60;
+                        const isFair = match.matchScore >= 40;
+
+                        const scoreBadgeStyle = isHigh
+                          ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                          : isMed
+                          ? 'bg-blue-500/10 text-blue-400 border-blue-500/30'
+                          : isFair
+                          ? 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                          : 'bg-rose-500/10 text-rose-400 border-rose-500/30';
+
+                        return (
+                          <div
+                            key={match.candidateId}
+                            className={`border rounded-xl p-5 transition-all cursor-pointer ${
+                              isSelected
+                                ? 'border-blue-500/80 bg-blue-950/20 ring-1 ring-blue-500/50 shadow-lg shadow-blue-950/30'
+                                : 'border-gray-800 bg-gray-800/40 hover:bg-gray-800/70 hover:border-gray-700'
+                            }`}
+                            onClick={() => toggleCandidateSelection(match.candidateId)}
+                          >
+                            {/* Card Header */}
+                            <div className="flex items-start justify-between gap-4">
+                              <div className="flex items-start gap-3 flex-1 min-w-0">
+                                <input 
+                                  type="checkbox"
+                                  className="w-4 h-4 mt-1 rounded border-gray-600 bg-gray-800 text-blue-600 focus:ring-blue-500 cursor-pointer accent-blue-600 shrink-0"
+                                  checked={isSelected}
+                                  onChange={() => toggleCandidateSelection(match.candidateId)}
+                                  onClick={(e) => e.stopPropagation()}
+                                />
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2 flex-wrap mb-1">
+                                    <span className="text-xs font-mono font-semibold px-2 py-0.5 rounded bg-gray-800 text-gray-300 border border-gray-700">
+                                      #{index + 1}
                                     </span>
-                                    <Badge className={`${getMatchScoreBg(match.matchScore)} text-white`}>
-                                      {match.matchPercentage} Match
-                                    </Badge>
+                                    <h3 className="text-base font-bold text-white truncate">
+                                      {match.name}
+                                    </h3>
                                   </div>
-                                  <p className="text-sm text-gray-400">{match.email}</p>
-                                </div>
-                                <div className={`text-3xl font-bold bg-gradient-to-r ${getMatchScoreColor(match.matchScore)} bg-clip-text text-transparent mt-2 sm:mt-0`}>
-                                  {match.matchScore}%
+                                  <p className="text-xs text-gray-400 flex items-center gap-1.5 truncate">
+                                    <Mail className="w-3 h-3 text-gray-500 shrink-0" />
+                                    <span>{match.email}</span>
+                                  </p>
                                 </div>
                               </div>
+
+                              {/* Match Score Indicator */}
+                              <div className={`px-3 py-1 rounded-full border text-xs font-bold flex items-center gap-1 shrink-0 ${scoreBadgeStyle}`}>
+                                <Sparkles className="w-3 h-3" />
+                                <span>{match.matchScore}% Match</span>
+                              </div>
+                            </div>
+
+                            {/* AI Summary */}
+                            {match.summary && (
+                              <div className="bg-gray-950/50 border border-gray-800/80 rounded-lg p-3 text-xs text-gray-300 leading-relaxed my-3.5">
+                                {match.summary}
+                              </div>
+                            )}
+
+                            {/* Strengths & Areas to Develop Columns */}
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5 mt-3">
+                              {/* Strengths */}
+                              {match.strengths && match.strengths.length > 0 && (
+                                <div className="space-y-2">
+                                  <div className="flex items-center gap-1.5 text-xs font-semibold text-emerald-400">
+                                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                                    <span>Strengths</span>
+                                  </div>
+                                  <div className="flex flex-col gap-1.5">
+                                    {match.strengths.map((strength, idx) => (
+                                      <div
+                                        key={idx}
+                                        className="flex items-start gap-2 p-2 rounded-lg bg-emerald-950/30 border border-emerald-800/30 text-emerald-200 text-xs leading-relaxed"
+                                      >
+                                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 mt-1.5 shrink-0" />
+                                        <span className="break-words flex-1">{strength}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Areas to Develop */}
+                              {match.gaps && match.gaps.length > 0 && (
+                                <div className="space-y-2">
+                                  <div className="flex items-center gap-1.5 text-xs font-semibold text-amber-400">
+                                    <AlertCircle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                                    <span>Areas to Develop</span>
+                                  </div>
+                                  <div className="flex flex-col gap-1.5">
+                                    {match.gaps.map((gap, idx) => (
+                                      <div
+                                        key={idx}
+                                        className="flex items-start gap-2 p-2 rounded-lg bg-amber-950/30 border border-amber-800/30 text-amber-200 text-xs leading-relaxed"
+                                      >
+                                        <span className="w-1.5 h-1.5 rounded-full bg-amber-400 mt-1.5 shrink-0" />
+                                        <span className="break-words flex-1">{gap}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           </div>
-
-                        <p className="text-sm text-gray-300 mb-4">{match.summary}</p>
-
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          {/* Strengths */}
-                          {match.strengths && match.strengths.length > 0 && (
-                            <div>
-                              <h4 className="text-sm font-semibold text-green-400 mb-2">Strengths</h4>
-                              <div className="flex flex-wrap gap-2">
-                                {match.strengths.map((strength, idx) => (
-                                  <Badge key={idx} className="bg-green-900/50 text-green-300 border border-green-700">
-                                    {strength}
-                                  </Badge>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-
-                          {/* Gaps */}
-                          {match.gaps && match.gaps.length > 0 && (
-                            <div>
-                              <h4 className="text-sm font-semibold text-orange-400 mb-2">Areas to Develop</h4>
-                              <div className="flex flex-wrap gap-2">
-                                {match.gaps.map((gap, idx) => (
-                                  <Badge key={idx} className="bg-orange-900/50 text-orange-300 border border-orange-700">
-                                    {gap}
-                                  </Badge>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      </CardContent>
-                    </Card>
-                    ))
-                  )}
+                        );
+                      })
+                    )}
+                  </div>
                 </div>
               )}
 
               {/* Step 2: Setup Invite */}
               {matchDialogStep === 'invite' && (
-                <div className="p-6 space-y-6">
-                  <div className="bg-blue-900/20 border border-blue-500/30 rounded-lg p-4 mb-6">
-                    <p className="text-blue-300 font-medium">Ready to invite {selectedCandidates.length} candidate(s)</p>
+                <div className="p-6 space-y-6 flex-1 overflow-y-auto">
+                  <div className="bg-blue-900/20 border border-blue-500/30 rounded-xl p-4 flex items-center gap-3">
+                    <div className="h-9 w-9 rounded-lg bg-blue-500/20 text-blue-400 flex items-center justify-center shrink-0">
+                      <Send className="h-4 w-4" />
+                    </div>
+                    <div>
+                      <p className="text-sm text-blue-300 font-semibold">Ready to invite {selectedCandidates.length} candidate(s)</p>
+                      <p className="text-xs text-blue-400/80">Each candidate will receive their unique AI interview link via email.</p>
+                    </div>
                   </div>
 
                   <div className="space-y-4">
                     <div>
-                      <label className="block text-sm font-medium text-gray-300 mb-2">
-                        Interview Type
+                      <label className="block text-xs font-semibold text-gray-300 mb-1.5">
+                        Interview Type / Stage
                       </label>
                       <select 
                         value={interviewType}
                         onChange={(e) => setInterviewType(e.target.value)}
-                        className="w-full bg-gray-800 border border-gray-700 rounded-md py-2 px-3 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        className="w-full bg-gray-800 border border-gray-700 rounded-lg py-2 px-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                       >
                         <option value="Screening">Screening (AI First Round)</option>
                         <option value="Tech Interview">Tech Interview (Coding / Architecture)</option>
@@ -778,15 +839,15 @@ export default function JobsPage() {
                       </select>
                     </div>
 
-                    <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
-                      <h4 className="text-sm font-medium text-gray-400 mb-3">Selected Candidates:</h4>
-                      <ul className="space-y-2 max-h-40 overflow-y-auto pr-2">
+                    <div className="bg-gray-800/60 rounded-xl p-4 border border-gray-700/80">
+                      <h4 className="text-xs font-semibold text-gray-400 mb-3 uppercase tracking-wider">Recipients ({selectedCandidates.length}):</h4>
+                      <ul className="space-y-2 max-h-48 overflow-y-auto pr-2 divide-y divide-gray-700/50">
                         {matches
                           .filter(m => selectedCandidates.includes(m.candidateId))
                           .map(m => (
-                            <li key={m.candidateId} className="flex items-center justify-between text-sm">
-                              <span className="text-gray-200">{m.name}</span>
-                              <span className="text-gray-500">{m.email}</span>
+                            <li key={m.candidateId} className="flex items-center justify-between text-xs pt-2 first:pt-0">
+                              <span className="text-white font-medium">{m.name}</span>
+                              <span className="text-gray-400 font-mono">{m.email}</span>
                             </li>
                           ))
                         }
@@ -794,7 +855,7 @@ export default function JobsPage() {
                     </div>
                   </div>
 
-                  <div className="flex justify-end gap-3 pt-4 border-t border-gray-700 mt-6">
+                  <div className="flex justify-end gap-3 pt-4 border-t border-gray-800 mt-6">
                     <Button 
                       variant="ghost" 
                       onClick={() => setMatchDialogStep('matches')}
@@ -805,12 +866,12 @@ export default function JobsPage() {
                     <Button 
                       onClick={handleGenerateInvites}
                       disabled={isGeneratingInvites}
-                      className="bg-blue-600 hover:bg-blue-700"
+                      className="bg-blue-600 hover:bg-blue-500 text-white"
                     >
                       {isGeneratingInvites ? (
                         <>
                           <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2" />
-                          Generating...
+                          Sending Invites...
                         </>
                       ) : (
                         'Send Automated Invites'
@@ -822,72 +883,67 @@ export default function JobsPage() {
 
               {/* Step 3: Success Links */}
               {matchDialogStep === 'success' && (
-                <div className="p-6 space-y-6">
-                  <div className="text-center py-6">
-                    <div className="w-16 h-16 bg-green-500/20 text-green-500 rounded-full flex items-center justify-center mx-auto mb-4">
-                      <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path></svg>
+                <div className="p-6 space-y-6 flex-1 overflow-y-auto">
+                  <div className="text-center py-4">
+                    <div className="w-14 h-14 bg-emerald-500/20 text-emerald-400 rounded-full flex items-center justify-center mx-auto mb-3">
+                      <CheckCircle2 className="w-8 h-8" />
                     </div>
-                    <h3 className="text-xl font-bold text-white mb-2">Invites Sent Successfully!</h3>
-                    <p className="text-gray-400">
-                      Our automated recruiter agent has sent the interview invitations via email. 
-                      You can also manually copy the links below if needed.
+                    <h3 className="text-lg font-bold text-white mb-1">Invites Sent Successfully!</h3>
+                    <p className="text-xs text-gray-400 max-w-md mx-auto">
+                      Invitations with AI interview links have been dispatched to the candidate emails. You can also copy links below.
                     </p>
                   </div>
 
-                  <div className="space-y-4">
+                  <div className="space-y-3 max-h-60 overflow-y-auto pr-1">
                     {generatedLinks.map((invite, index) => (
-                      <div key={index} className="bg-gray-800 p-4 rounded-lg border border-gray-700">
+                      <div key={index} className="bg-gray-800/60 p-3.5 rounded-xl border border-gray-700/80">
                         <div className="flex justify-between items-start mb-2">
                           <div className="flex items-center gap-2">
-                            <h4 className="font-medium text-white">{invite.name}</h4>
+                            <h4 className="font-semibold text-sm text-white">{invite.name}</h4>
                             {invite.emailStatus.sent ? (
-                              <span className="text-[10px] bg-green-900/50 text-green-400 border border-green-700/50 px-1.5 py-0.5 rounded flex items-center gap-1">
-                                <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7"></path></svg>
+                              <span className="text-[10px] bg-emerald-900/50 text-emerald-300 border border-emerald-700/50 px-2 py-0.5 rounded-full flex items-center gap-1 font-medium">
+                                <Check className="w-2.5 h-2.5" />
                                 Email Sent
                               </span>
                             ) : (
-                              <span className="text-[10px] bg-red-900/50 text-red-400 border border-red-700/50 px-1.5 py-0.5 rounded flex items-center gap-1" title={invite.emailStatus.error || 'Unknown error'}>
-                                <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                                Sending Failed
+                              <span className="text-[10px] bg-rose-900/50 text-rose-300 border border-rose-700/50 px-2 py-0.5 rounded-full flex items-center gap-1 font-medium" title={invite.emailStatus.error || 'Failed'}>
+                                <AlertCircle className="w-2.5 h-2.5" />
+                                Delivery Failed
                               </span>
                             )}
                           </div>
-                          {invite.emailStatus.error && (
-                            <p className="text-[10px] text-red-400 mt-1 italic">
-                              Error: {invite.emailStatus.error}
-                            </p>
-                          )}
-                          <span className="text-xs bg-gray-700 text-gray-300 px-2 py-1 rounded">
+                          <span className="text-[11px] font-mono text-gray-400 bg-gray-900 px-2 py-0.5 rounded border border-gray-800">
                             {invite.email}
                           </span>
                         </div>
-                        <div className="flex items-center gap-2 mt-3">
+                        <div className="flex items-center gap-2 mt-2">
                           <input 
                             readOnly 
                             value={invite.link} 
-                            className="bg-gray-900 border border-gray-700 rounded-md py-1.5 px-3 text-sm text-blue-400 w-full font-mono outline-none"
+                            className="bg-gray-900/90 border border-gray-700/80 rounded-lg py-1.5 px-3 text-xs text-blue-400 w-full font-mono outline-none"
                           />
                           <Button 
                             size="sm" 
                             variant="secondary"
+                            className="h-8 text-xs shrink-0"
                             onClick={() => {
                               navigator.clipboard.writeText(invite.link);
                               toast.success('Link copied to clipboard!');
                             }}
                           >
-                            Copy
+                            Copy Link
                           </Button>
                         </div>
                       </div>
                     ))}
                   </div>
 
-                  <div className="flex justify-center pt-6">
+                  <div className="flex justify-center pt-4 border-t border-gray-800">
                     <Button 
                       onClick={() => setShowMatches(false)}
-                      className="bg-gray-700 hover:bg-gray-600"
+                      className="bg-gray-800 hover:bg-gray-700 text-white text-xs px-6"
                     >
-                      Close
+                      Done
                     </Button>
                   </div>
                 </div>
