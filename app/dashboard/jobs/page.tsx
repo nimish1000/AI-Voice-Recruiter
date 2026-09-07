@@ -833,9 +833,9 @@ export default function JobsPage() {
                         onChange={(e) => setInterviewType(e.target.value)}
                         className="w-full bg-gray-800 border border-gray-700 rounded-lg py-2 px-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                       >
-                        <option value="Screening">Screening (AI First Round)</option>
-                        <option value="Tech Interview">Tech Interview (Coding / Architecture)</option>
-                        <option value="HR Final Interview">HR Final Interview (Cultural Fit)</option>
+                        <option value="Screening">Round 1: Screening (3-4 Basic Questions)</option>
+                        <option value="Tech Interview">Round 2: Technical Round (2 DSA Questions - 30 Mins Each)</option>
+                        <option value="Project Discussion">Round 3: Project Discussion (In-Depth Project Deep Dive)</option>
                       </select>
                     </div>
 

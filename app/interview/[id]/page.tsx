@@ -43,30 +43,54 @@ export default function InterviewPage() {
         const data = await response.json();
         
         if (data.success && data.job) {
-          const interviewType = data.interview.interviewType || 'AI Assessment';
-          const isTechnicalRound = interviewType === 'Tech Interview';
+          const interviewType = data.interview.interviewType || 'Screening';
+          const isTechnicalRound = interviewType === 'Tech Interview' || interviewType === 'Technical Round';
+          const isProjectRound = interviewType === 'Project Discussion' || interviewType === 'Project Round';
           
-          setInterviewData(prev => ({
-            ...prev,
-            jobTitle: data.job.title,
-            description: isTechnicalRound 
-              ? 'This is a technical coding round. You will be given 2 practical DSA (Data Structures & Algorithms) problems — one Medium and one Hard level. You have 30 minutes per question (1 hour total). Ensure you have a quiet environment and are ready to think through coding problems.'
-              : data.job.description || prev.description,
-            company: data.settings?.companyName || prev.company,
-            companyDescription: data.settings?.companyDescription || prev.companyDescription,
-            agentName: data.settings?.agentName || prev.agentName,
-            type: interviewType,
-            duration: isTechnicalRound ? '60 minutes' : prev.duration,
-            instructions: isTechnicalRound 
-              ? [
-                  'Find a quiet space — you\'ll need to focus on coding problems',
-                  'Ensure your microphone and camera are working',
-                  'You\'ll receive 2 DSA problems: 1 Medium + 1 Hard',
-                  '30 minutes per question (1 hour total)',
-                  'Explain your approach clearly — communication matters',
-                ]
-              : prev.instructions,
-          }));
+          setInterviewData(prev => {
+            let roundDescription = data.job.description || prev.description;
+            let roundDuration = '15-20 minutes';
+            let roundInstructions = [
+              'Find a quiet space with good lighting',
+              'Ensure your microphone and camera are working',
+              'Have a stable internet connection',
+              'Answer 3-4 basic screening questions clearly',
+              'Speak naturally and take your time to answer',
+            ];
+
+            if (isTechnicalRound) {
+              roundDescription = 'This is a technical coding round. You will be presented with 2 practical DSA (Data Structures & Algorithms) coding problems — with 30 minutes allocated per question (1 hour total). Explain your approach and problem-solving steps.';
+              roundDuration = '60 minutes (30 mins / question)';
+              roundInstructions = [
+                'Find a quiet space — you will solve 2 DSA coding problems',
+                'Ensure your microphone and camera are working',
+                'You have 30 minutes per question (2 questions total)',
+                'Type your solution in the code editor provided',
+                'Explain your approach, time, and space complexity',
+              ];
+            } else if (isProjectRound) {
+              roundDescription = 'This is an in-depth Project Discussion round. The interviewer will ask detailed questions about the software/engineering projects you have built, including architecture, tech stack decisions, technical hurdles, and scalability.';
+              roundDuration = '25-30 minutes';
+              roundInstructions = [
+                'Be prepared to discuss your major projects in depth',
+                'Highlight system architecture, API/database design, and data flow',
+                'Explain challenging technical roadblocks or bugs you solved',
+                'Discuss scalability, trade-offs, and future improvements',
+              ];
+            }
+
+            return {
+              ...prev,
+              jobTitle: data.job.title,
+              description: roundDescription,
+              company: data.settings?.companyName || prev.company,
+              companyDescription: data.settings?.companyDescription || prev.companyDescription,
+              agentName: data.settings?.agentName || prev.agentName,
+              type: interviewType,
+              duration: roundDuration,
+              instructions: roundInstructions,
+            };
+          });
         }
       } catch (error) {
         console.error('Error fetching interview details:', error);

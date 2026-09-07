@@ -960,9 +960,11 @@ export default function InterviewSession() {
       askedQuestionsRef.current.add(0);
       const firstQuestionText = activeQuestions[0].question;
       
-      // Update first question if it's the generic fallback to include agent name
+      const isProjectRound = data?.isProjectRound || false;
       const welcomeText = isTechRound
         ? `Welcome to the Technical Coding Round! I'm ${agentName || 'your AI interviewer'}. You will be given 2 DSA coding problems — one Medium and one Hard level. You have 30 minutes per question (1 hour total). Let's begin with Question 1:\n\n${firstQuestionText}`
+        : isProjectRound
+        ? `Welcome to the Project Discussion Round! I'm ${agentName || 'your AI interviewer'}. In this session, we'll dive into the architecture, challenges, and implementation details of the projects you've built. Let's begin:\n\n${firstQuestionText}`
         : firstQuestionText.includes("I'm your AI interviewer")
           ? firstQuestionText.replace("I'm your AI interviewer", `I'm ${agentName || 'your AI interviewer'}`)
           : firstQuestionText;

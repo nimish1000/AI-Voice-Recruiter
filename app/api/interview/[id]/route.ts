@@ -54,14 +54,16 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         : null;
 
       const interviewType = interview.interviewType || 'Screening';
-      const isTechnicalRound = interviewType === 'Tech Interview';
+      const isTechnicalRound = interviewType === 'Tech Interview' || interviewType === 'Technical Round';
+      const isProjectRound = interviewType === 'Project Discussion' || interviewType === 'Project Round';
+      const isScreeningRound = !isTechnicalRound && !isProjectRound;
 
-      // Generate job-specific questions
+      // Generate round-specific questions
       const generatedQuestions = await generateInterviewQuestions(
         job?.title || 'General Position',
         job?.description || 'General professional interview',
         settings,
-        isTechnicalRound
+        interviewType
       );
       
       return NextResponse.json({
@@ -71,7 +73,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         questions: generatedQuestions,
         interviewType,
         isTechnicalRound,
-        totalTimeMinutes: isTechnicalRound ? 60 : null,
+        isProjectRound,
+        isScreeningRound,
+        totalTimeMinutes: isTechnicalRound ? 60 : isProjectRound ? 30 : 15,
         perQuestionTimeMinutes: isTechnicalRound ? 30 : null,
         settings: settings ? {
           agentName: settings.agentName,
@@ -499,15 +503,29 @@ function calculateSimilarity(text1: string, text2: string): number {
   return intersection.size / union.size;
 }
 
-// Generate job-specific interview questions using Groq AI
-async function generateInterviewQuestions(jobTitle: string, jobDescription: string, settings: any = null, isTechnicalRound: boolean = false) {
+// Generate round-specific interview questions using Groq AI
+async function generateInterviewQuestions(
+  jobTitle: string,
+  jobDescription: string,
+  settings: any = null,
+  interviewType: string = 'Screening'
+) {
+  const isTechnicalRound = interviewType === 'Tech Interview' || interviewType === 'Technical Round';
+  const isProjectRound = interviewType === 'Project Discussion' || interviewType === 'Project Round';
+  const isScreeningRound = !isTechnicalRound && !isProjectRound;
+
   try {
-    // Technical round: exactly 2 practical DSA questions
-    const questionCount = isTechnicalRound ? 2 : (settings?.questionCount || 8);
+    // Round question count:
+    // Screening: 4 basic questions
+    // Technical: 2 DSA questions (30 mins each)
+    // Project Discussion: 4 project-focused questions
+    const questionCount = isTechnicalRound ? 2 : 4;
     
     if (!process.env.GROQ_API_KEY) {
       console.warn('⚠️ GROQ_API_KEY not found, using fallback questions');
-      return isTechnicalRound ? getTechnicalRoundFallbackQuestions() : getFallbackQuestions(jobTitle, questionCount);
+      if (isTechnicalRound) return getTechnicalRoundFallbackQuestions();
+      if (isProjectRound) return getProjectDiscussionFallbackQuestions(jobTitle);
+      return getScreeningFallbackQuestions(jobTitle);
     }
 
     let promptContent = '';
@@ -516,8 +534,8 @@ async function generateInterviewQuestions(jobTitle: string, jobDescription: stri
     const companyDescription = settings?.companyDescription || 'General professional interview';
 
     if (isTechnicalRound) {
-      // ======= TECHNICAL ROUND: 2 Practical DSA Questions =======
-      promptContent = `You are an expert technical interviewer named ${agentName} at ${companyName} conducting a TECHNICAL CODING ROUND.
+      // ======= ROUND 2: TECHNICAL DSA ROUND (2 Questions, 30 min each) =======
+      promptContent = `You are an expert technical interviewer named ${agentName} at ${companyName} conducting a TECHNICAL CODING ROUND (DSA).
 
 About ${companyName}:
 ${companyDescription}
@@ -529,79 +547,96 @@ You MUST generate EXACTLY 2 practical Data Structures and Algorithms (DSA) codin
 
 Rules:
 - Return ONLY a valid JSON array of exactly 2 objects.
-- Each object must have: "id" (number), "question" (string), "category" (string), "difficulty" (string: "Medium" or "Hard"), and "timeLimit" (number: 30).
-- Question 1 (id: 1): A MEDIUM difficulty DSA problem. This should be a practical coding problem similar to LeetCode Medium level. Include a clear problem statement with input/output examples. Topics can include: Arrays, Strings, HashMaps, Linked Lists, Stacks, Queues, Binary Search, Two Pointers, Sliding Window, etc.
-- Question 2 (id: 2): A HARD difficulty DSA problem. This should be a practical coding problem similar to LeetCode Hard level. Include a clear problem statement with input/output examples. Topics can include: Dynamic Programming, Graphs (BFS/DFS), Trees, Tries, Heaps, Greedy Algorithms, Backtracking, etc.
-- Each question MUST have a concrete problem statement (not vague). For example: "Given an array of integers, find..." or "Design a data structure that supports..."
-- Include at least one input/output example in each question.
-- The candidate has 30 minutes per question (60 minutes total).
+- Each object must have: "id" (number: 1 or 2), "question" (string), "category" (string), "difficulty" (string: "Medium" or "Hard"), and "timeLimit" (number: 30).
+- Question 1 (id: 1): A MEDIUM difficulty DSA problem (LeetCode Medium level). Include problem statement with input/output examples and constraints. Topics: Arrays, Strings, HashMaps, Sliding Window, Two Pointers, Linked Lists, Binary Trees, Stacks, Queues, etc.
+- Question 2 (id: 2): A HARD difficulty DSA problem (LeetCode Hard level). Include problem statement with input/output examples and constraints. Topics: Dynamic Programming, Graphs (BFS/DFS), Binary Search Trees, Heaps, Backtracking, etc.
+- Each question MUST include clear Example inputs & outputs, and Constraints.
+- Time limit for each question is 30 minutes.
 - Category should be "DSA - Medium" or "DSA - Hard".
 
-Example format:
+Example JSON format:
 [
-  { "id": 1, "question": "Given an array of integers nums and a target integer target, return the indices of the two numbers such that they add up to target.\n\nExample:\nInput: nums = [2, 7, 11, 15], target = 9\nOutput: [0, 1]\nExplanation: nums[0] + nums[1] = 2 + 7 = 9\n\nConstraints:\n- 2 <= nums.length <= 10^4\n- Each input has exactly one solution.", "category": "DSA - Medium", "difficulty": "Medium", "timeLimit": 30 },
+  { "id": 1, "question": "Given an array of integers nums and an integer target, return indices of the two numbers such that they add up to target.\n\nExample 1:\nInput: nums = [2,7,11,15], target = 9\nOutput: [0,1]\nExplanation: nums[0] + nums[1] == 9, so return [0, 1].\n\nConstraints:\n- 2 <= nums.length <= 10^4\n- -10^9 <= nums[i] <= 10^9", "category": "DSA - Medium", "difficulty": "Medium", "timeLimit": 30 },
   { "id": 2, "question": "...", "category": "DSA - Hard", "difficulty": "Hard", "timeLimit": 30 }
 ]
 
-Return ONLY the JSON array. No conversational text. Make the questions unique, practical, and challenging.`;
-    } else if (!settings?.systemPrompt) {
-      // ======= STANDARD INTERVIEW ROUND =======
-      promptContent = `You are an expert technical recruiter and interviewer named ${agentName} at ${companyName}. 
-    
-    About ${companyName}:
-    ${companyDescription}
+Return ONLY the JSON array.`;
 
-    Generate ${questionCount} interview questions for a candidate applying for the position of "${jobTitle}".
-    
-    Job Description context:
-    ${jobDescription}
-    
-    Requirements:
-    - Return ONLY a valid JSON array of objects.
-    - Each object must have "id" (number 1-8), "question" (string), and "category" (string).
-    - Question 1: A warm introduction and request for background.
-    - Questions 2-5: Technical questions specific to the role "${jobTitle}". IMPORTANT: If the role is "Software Developer", "Full Stack Developer", or similar engineering roles, you MUST include at least 3-4 questions specifically about Data Structures and Algorithms (DSA).
-    - Questions 6-7: Behavioral or collaboration questions.
-    - Question 8: Career goals and a flat closing question.
-    
-    Example format:
-    [
-      { "id": 1, "question": "...", "category": "Introduction" }
-    ]
-    
-    Return ONLY the JSON. No conversational text.`;
+    } else if (isProjectRound) {
+      // ======= ROUND 3: PROJECT DISCUSSION ROUND (3-4 In-depth Project Questions) =======
+      promptContent = `You are an expert engineering leader and hiring manager named ${agentName} at ${companyName} conducting a PROJECT DISCUSSION & ARCHITECTURE ROUND.
 
-      // Force DSA requirement for engineering roles using code logic
-      const isEngineering = jobTitle.toLowerCase().includes('software') || 
-                            jobTitle.toLowerCase().includes('developer') || 
-                            jobTitle.toLowerCase().includes('engineer') ||
-                            jobTitle.toLowerCase().includes('stack') ||
-                            jobTitle.toLowerCase().includes('coder');
-                            
-      if (isEngineering) {
-        promptContent += `\n\nCRITICAL INSTRUCTION: YOU MUST explicitly make AT LEAST 3 to 4 of the technical questions focused purely on Data Structures and Algorithms (DSA) such as Arrays, HashMaps, Trees, Graphs, or Dynamic Programming. Do NOT ask only general web development questions. Ask specific coding/DSA problem-solving questions.`;
-      }
+About ${companyName}:
+${companyDescription}
+
+The candidate is applying for: "${jobTitle}"
+Job Description: ${jobDescription}
+
+You MUST generate EXACTLY 4 comprehensive questions focused on whatever projects the candidate has built.
+
+Structure the 4 questions as follows:
+- Question 1 (id: 1): Project Overview & Tech Stack - Ask the candidate to pick their most proud / complex project built from scratch, explain the real-world problem it solves, and justify their tech stack choices.
+- Question 2 (id: 2): Architecture & Data Flow - Ask for a deep-dive into the system architecture, API/database design, or data flow of that project.
+- Question 3 (id: 3): Technical Roadblocks & Debugging - Ask about the single toughest technical bottleneck, complex bug, or scalability issue they encountered in that project and how they diagnosed and solved it.
+- Question 4 (id: 4): Scalability, Trade-offs & Security - Ask what architectural trade-offs they made, how they would scale the project to 100,000+ users, or what they would re-engineer with more time.
+
+Rules:
+- Return ONLY a valid JSON array of exactly 4 objects.
+- Each object must have: "id" (number 1 to 4), "question" (string), and "category" (string: "Project Overview", "System Architecture", "Technical Problem Solving", "Scalability & Trade-offs").
+
+Example JSON format:
+[
+  { "id": 1, "question": "Could you walk me through the most impactful project you've built? What problem did it solve, and why did you choose your specific tech stack for it?", "category": "Project Overview" },
+  { "id": 2, "question": "...", "category": "System Architecture" },
+  { "id": 3, "question": "...", "category": "Technical Problem Solving" },
+  { "id": 4, "question": "...", "category": "Scalability & Trade-offs" }
+]
+
+Return ONLY the JSON array.`;
+
     } else {
-      // Replace placeholders in custom prompt
-      promptContent = settings.systemPrompt
-        .replace(/\[COUNT\]/g, questionCount.toString())
-        .replace(/\[TITLE\]/g, jobTitle)
-        .replace(/\[DESCRIPTION\]/g, jobDescription)
-        .replace(/\[COMPANY_NAME\]/g, companyName)
-        .replace(/\[COMPANY_DESCRIPTION\]/g, companyDescription);
+      // ======= ROUND 1: SCREENING ROUND (3-4 Basic Questions) =======
+      promptContent = `You are a friendly and professional recruiter named ${agentName} at ${companyName} conducting an INITIAL SCREENING ROUND.
+
+About ${companyName}:
+${companyDescription}
+
+The candidate is applying for: "${jobTitle}"
+Job Description: ${jobDescription}
+
+You MUST generate EXACTLY 4 basic screening questions to assess background, communication, and initial role fit.
+
+Structure the 4 questions as follows:
+- Question 1 (id: 1): Warm Welcome & Background - Warm greeting, asking the candidate to introduce themselves, their educational/professional background, and what drew them to this position.
+- Question 2 (id: 2): Core Skills & Experience - A concise question exploring their primary hands-on experience with the key skills required for "${jobTitle}".
+- Question 3 (id: 3): Motivation & Alignment - A question asking why they want to join ${companyName} and what motivates them in their career.
+- Question 4 (id: 4): Work Style & Collaboration - A practical behavioral question about how they manage deadlines, handle feedback, or collaborate in team settings.
+
+Rules:
+- Return ONLY a valid JSON array of exactly 4 objects.
+- Each object must have: "id" (number 1 to 4), "question" (string), and "category" (string: "Introduction", "Core Skills", "Motivation", "Collaboration").
+
+Example JSON format:
+[
+  { "id": 1, "question": "Hello! I'm your AI recruiter. To kick off our screening, could you share a brief overview of your background and what excites you about this ${jobTitle} role?", "category": "Introduction" },
+  { "id": 2, "question": "...", "category": "Core Skills" },
+  { "id": 3, "question": "...", "category": "Motivation" },
+  { "id": 4, "question": "...", "category": "Collaboration" }
+]
+
+Return ONLY the JSON array.`;
     }
 
     const chatCompletion = await groq.chat.completions.create({
       messages: [{ role: 'user', content: promptContent }],
       model: 'openai/gpt-oss-120b',
-      temperature: isTechnicalRound ? 0.4 : 0.2,
+      temperature: isTechnicalRound ? 0.4 : 0.3,
       response_format: { type: 'json_object' },
     });
 
     const content = chatCompletion.choices[0]?.message?.content || '[]';
-    console.log('🤖 GROQ RAW RESPONSE:', content);
+    console.log(`🤖 GROQ [${interviewType}] RAW RESPONSE:`, content);
     
-    // Handle cases where model might return { "questions": [...] } or { "interviewQuestions": [...] }
     let questions = [];
     try {
       const parsed = JSON.parse(content);
@@ -612,7 +647,6 @@ Return ONLY the JSON array. No conversational text. Make the questions unique, p
       } else if (parsed.interviewQuestions && Array.isArray(parsed.interviewQuestions)) {
         questions = parsed.interviewQuestions;
       } else {
-        // Just grab the first array we can find inside the object
         const firstArray = Object.values(parsed).find(val => Array.isArray(val));
         if (firstArray) questions = firstArray;
       }
@@ -621,8 +655,7 @@ Return ONLY the JSON array. No conversational text. Make the questions unique, p
     }
 
     if (questions.length > 0) {
-      console.log(`✅ Successfully generated ${questions.length} questions from Groq.`);
-      // For technical round, ensure we have exactly 2 and add timeLimit
+      console.log(`✅ Successfully generated ${questions.length} questions for ${interviewType}.`);
       if (isTechnicalRound) {
         questions = questions.slice(0, 2).map((q: any, i: number) => ({
           ...q,
@@ -631,49 +664,96 @@ Return ONLY the JSON array. No conversational text. Make the questions unique, p
           timeLimit: 30,
           category: i === 0 ? 'DSA - Medium' : 'DSA - Hard',
         }));
+      } else {
+        questions = questions.slice(0, 4).map((q: any, i: number) => ({
+          ...q,
+          id: i + 1,
+        }));
       }
-      return questions.slice(0, questionCount);
+      return questions;
     }
     
-    console.warn('⚠️ Questions array empty, falling back.');
-    return isTechnicalRound ? getTechnicalRoundFallbackQuestions() : getFallbackQuestions(jobTitle, questionCount);
+    console.warn(`⚠️ Questions array empty for ${interviewType}, falling back.`);
+    if (isTechnicalRound) return getTechnicalRoundFallbackQuestions();
+    if (isProjectRound) return getProjectDiscussionFallbackQuestions(jobTitle);
+    return getScreeningFallbackQuestions(jobTitle);
     
   } catch (error) {
     console.error('Error generating AI questions:', error);
-    return isTechnicalRound ? getTechnicalRoundFallbackQuestions() : getFallbackQuestions(jobTitle, 8);
+    if (isTechnicalRound) return getTechnicalRoundFallbackQuestions();
+    if (isProjectRound) return getProjectDiscussionFallbackQuestions(jobTitle);
+    return getScreeningFallbackQuestions(jobTitle);
   }
 }
 
-function getFallbackQuestions(jobTitle: string, count: number = 8) {
-  const base = [
-    { id: 1, question: `Hello! I'm your AI interviewer. To get started, could you please tell me about your background and what interests you in this ${jobTitle} position?`, category: "Introduction" },
-    { id: 2, question: `Can you describe your experience with the core technologies and responsibilities required for a ${jobTitle}?`, category: "Technical" },
-    { id: 3, question: "What do you consider your greatest professional achievement so far?", category: "Experience" },
-    { id: 4, question: "Tell me about a challenging situation at work and how you handled it.", category: "Behavioral" },
-    { id: 5, question: "How do you stay updated with the latest trends and technologies in your field?", category: "Learning" },
-    { id: 6, question: "Describe your ideal team environment and how you contribute to it.", category: "Collaboration" },
-    { id: 7, question: "What are your expectations from this role and our company?", category: "Motivation" },
-    { id: 8, question: "Where do you see yourself professionally in the next few years?", category: "Career Goals" }
+// Fallback for Round 1: Screening (3-4 Basic Questions)
+function getScreeningFallbackQuestions(jobTitle: string) {
+  return [
+    {
+      id: 1,
+      question: `Hello! I'm your AI recruiter. To get started with our screening round, could you please give me a brief introduction of yourself, your background, and why you are interested in this ${jobTitle} position?`,
+      category: "Introduction"
+    },
+    {
+      id: 2,
+      question: `Can you describe your core experience and technical/domain skills relevant to the responsibilities of a ${jobTitle}?`,
+      category: "Core Skills"
+    },
+    {
+      id: 3,
+      question: `What motivated you to apply for this opportunity, and what are your primary career goals over the next couple of years?`,
+      category: "Motivation"
+    },
+    {
+      id: 4,
+      question: `How do you typically manage priorities when dealing with tight deadlines or shifting requirements in a team environment?`,
+      category: "Work Style"
+    }
   ];
-
-  return base.slice(0, count).map((q, i) => ({ ...q, id: i + 1 }));
 }
 
+// Fallback for Round 2: Technical DSA (2 Questions, 30 min each)
 function getTechnicalRoundFallbackQuestions() {
   return [
     {
       id: 1,
-      question: "Given an integer array nums, find the contiguous subarray (containing at least one number) which has the largest sum and return its sum.\n\nExample:\nInput: nums = [-2, 1, -3, 4, -1, 2, 1, -5, 4]\nOutput: 6\nExplanation: The subarray [4, -1, 2, 1] has the largest sum = 6.\n\nConstraints:\n- 1 <= nums.length <= 10^5\n- -10^4 <= nums[i] <= 10^4\n\nFollow up: Can you solve it using Kadane's Algorithm in O(n) time?",
+      question: "Given an integer array nums, find the contiguous subarray (containing at least one number) which has the largest sum and return its sum.\n\nExample 1:\nInput: nums = [-2, 1, -3, 4, -1, 2, 1, -5, 4]\nOutput: 6\nExplanation: The subarray [4, -1, 2, 1] has the largest sum = 6.\n\nConstraints:\n- 1 <= nums.length <= 10^5\n- -10^4 <= nums[i] <= 10^4\n\nFollow up: Can you formulate an O(n) solution using Kadane's Algorithm?",
       category: "DSA - Medium",
       difficulty: "Medium",
       timeLimit: 30
     },
     {
       id: 2,
-      question: "Given n non-negative integers representing an elevation map where the width of each bar is 1, compute how much water it can trap after raining.\n\nExample:\nInput: height = [0, 1, 0, 2, 1, 0, 1, 3, 2, 1, 2, 1]\nOutput: 6\nExplanation: 6 units of rain water are trapped between the bars.\n\nConstraints:\n- n == height.length\n- 1 <= n <= 2 * 10^4\n- 0 <= height[i] <= 10^5\n\nCan you solve it in O(n) time and O(1) space using two pointers?",
+      question: "Given n non-negative integers representing an elevation map where the width of each bar is 1, compute how much water it can trap after raining.\n\nExample 1:\nInput: height = [0, 1, 0, 2, 1, 0, 1, 3, 2, 1, 2, 1]\nOutput: 6\nExplanation: 6 units of rain water are trapped between the bars.\n\nConstraints:\n- n == height.length\n- 1 <= n <= 2 * 10^4\n- 0 <= height[i] <= 10^5\n\nCan you solve it in O(n) time and O(1) extra space using two pointers?",
       category: "DSA - Hard",
       difficulty: "Hard",
       timeLimit: 30
+    }
+  ];
+}
+
+// Fallback for Round 3: Project Discussion (4 in-depth project questions)
+function getProjectDiscussionFallbackQuestions(jobTitle: string) {
+  return [
+    {
+      id: 1,
+      question: `Welcome to the Project Discussion round! Tell me about the most impactful software or technical project you have built from scratch. What problem did it solve, and why did you select your specific tech stack?`,
+      category: "Project Overview"
+    },
+    {
+      id: 2,
+      question: `Can you walk me through the high-level system architecture and data flow of that project? How did the frontend, backend, APIs, and database communicate?`,
+      category: "System Architecture"
+    },
+    {
+      id: 3,
+      question: `What was the most difficult technical hurdle, bug, or performance bottleneck you ran into during that project, and how did you diagnose and resolve it?`,
+      category: "Technical Problem Solving"
+    },
+    {
+      id: 4,
+      question: `If you had to scale that project to handle 100,000+ concurrent active users, what architectural trade-offs, caching strategies, or structural changes would you make?`,
+      category: "Scalability & Trade-offs"
     }
   ];
 }
